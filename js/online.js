@@ -52,8 +52,9 @@ export function tidyTitle(title, artist) {
   const a = String(artist || "").trim();
   if (a) {
     const esc = a.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    t = t.replace(new RegExp(`^${esc}\\s*[-–—:]\\s*`, "i"), "").trim();
+    t = t.replace(new RegExp(`^${esc}(?:\\s*[-–—‒―|:~•·/]+\\s*|\\s{2,})`, "i"), "").trim();
   }
+  t = t.replace(/\s+/g, " ");
   if (t && t === t.toLowerCase()) t = titleCase(t);
   return t || String(title || "").trim();
 }
@@ -73,7 +74,11 @@ export function rank(list, q, popular = new Map()) {
     const aw = words(r.artist);
     let s = 0;
     if (tw.length && tw.every(w => qw.has(w))) s += 4;
-    if (aw.length && aw.every(w => qw.has(w))) s += 3;
+    // The singer counts only if he typed it as well as the title (so an upload credited to
+    // "Hotel" doesn't win a search for "hotel california").
+    const rest = new Set([...qw].filter(w => !tw.includes(w)));
+    if (aw.length && aw.every(w => rest.has(w))) s += 3;
+    if (aw.length && aw.every(w => tw.includes(w))) s -= 2; // singer is just the title again: a junk upload
     for (const w of qw) if (tw.includes(w) || aw.includes(w)) s += 1;
     if (EXTRAS.test(r.title + " " + r.artist + " " + (r.album || "")) && !EXTRAS.test(q)) s -= 3;
     const p = popular.get(keyOf(r.title, r.artist));
