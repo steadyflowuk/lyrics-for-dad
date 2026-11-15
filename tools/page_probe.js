@@ -30,7 +30,10 @@ export function run(title = document.title.replace(/ (chords|tab).*$/i, "")) {
   const anchor = l => !!sectionLabel(l) || /^\s*\[[^\]]{1,30}\]\s*$/.test(l) || isChordLine(l) || TAB_LINE.test(l) || hasInlineChords(l);
   const firstAnchor = want.findIndex(anchor);
   const missingAll = want.map((l, i) => [l, i]).filter(([l]) => !keptSet.has(l.trim()));
-  const junk = ([l, i]) => isSheetJunk(l) || (i < firstAnchor);
+  // ...and a sign-off after the last chord ("If you have any corrections...") goes from its first line on.
+  let lastAnchor = -1; want.forEach((l, i) => { if (anchor(l)) lastAnchor = i; });
+  const signOff = want.findIndex((l, i) => i > lastAnchor && isSheetJunk(l));
+  const junk = ([l, i]) => isSheetJunk(l) || (i < firstAnchor) || (signOff >= 0 && i >= signOff);
   const missing = missingAll.filter(m => !junk(m));
   const extra = kept.filter(l => !wantSet.has(l.trim()));
   // Chord names the website marks as chords that My Songs doesn't recognise.
