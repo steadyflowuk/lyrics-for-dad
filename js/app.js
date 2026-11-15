@@ -1,10 +1,10 @@
 // My Songs: a big-print lyrics library for Dad's tablet.
-import { renderSong, firstLine, plainWords, cleanLyrics, songHasChords, firstChord } from "./template.js";
+import { renderSong, firstLine, plainWords, cleanLyrics, songHasChords, firstChord, extractSheet } from "./template.js";
 import * as db from "./db.js";
 import { findSongs, fetchLyricsFor, LookupError } from "./online.js";
 import { transposeChord, bassNote, prefersFlats, guitarDiagram, bassDiagram, cleanChordSheet } from "./chords.js";
 
-const VERSION = "2.0.0";
+const VERSION = "2.0.1";
 const main = document.getElementById("main");
 const toastEl = document.getElementById("toast");
 
@@ -713,7 +713,8 @@ async function showSong(id, stale, folderId) {
           box.append(
             h("p", { text: "This song doesn't have chords yet. Look them up on a chords website, copy them, then paste them here." }),
             h("div", { class: "modal-buttons" },
-              h("a", { class: "btn big gold", href: UG_SEARCH + encodeURIComponent(song.title + " " + (song.artist || "")), target: "_blank", rel: "noopener" }, "1. Look up chords online ↗"),
+              h("a", { class: "btn big gold", href: UG_SEARCH + encodeURIComponent(song.title + " " + (song.artist || "")), target: "_blank", rel: "noopener",
+                onclick: () => setTimeout(() => go("/chords/" + encodeURIComponent(song.id)), 300) }, "1. Look up chords online ↗"),
               h("a", { class: "btn big green", href: "#/chords/" + encodeURIComponent(song.id) }, "2. Paste the chords"),
               h("button", { class: "btn big secondary", type: "button", onclick: () => close(null), text: "Close" })));
           return;
@@ -800,34 +801,71 @@ async function showPasteChords(id, stale) {
   const song = id ? await db.getSong(id) : null;
   if (stale()) return;
   if (!song) { go("/", true); return; }
-  const box = h("textarea", { id: "pc", class: "field words", rows: "14", spellcheck: "false", placeholder: "Paste the chords and words here" });
-  const msg = h("p", { class: "form-msg", role: "alert" });
+  const box = h("textarea", { id: "pc", class: "field words", rows: "14", spellcheck: "false", placeholder: "The chords and words will appear here" });
+  const msg = h("p", { class: "form-msg", role: "status" });
   const canRead = !!(navigator.clipboard && navigator.clipboard.readText);
+  const lookUp = UG_SEARCH + encodeURIComponent(song.title + " " + (song.artist || ""));
+
+  // Whatever was copied (the whole web page is fine), keep just the chord sheet.
+  function fill(raw) {
+    const { text, removed } = extractSheet(raw);
+    box.value = text;
+    if (!text.trim()) { msg.className = "form-msg"; msg.textContent = "There was nothing to paste. Copy the chords first."; return false; }
+    if (!songHasChords(text)) { msg.className = "form-msg"; msg.textContent = "No chords were found in what was copied. Make sure it's a page with chords (like G, Am or D7 above the words)."; return false; }
+    msg.className = "form-msg good";
+    msg.textContent = removed
+      ? `✓ Found the chords (and left out ${removed} lines of website text). Check them below, then press “Save the chords”.`
+      : "✓ Chords pasted. Press “Save the chords”.";
+    return true;
+  }
 
   const s = screen("edit",
     backButton("Cancel", "#/song/" + encodeURIComponent(song.id), true),
     h("h1", { text: `Add chords to “${song.title}”` }),
     h("ol", { class: "steps" },
-      h("li", {}, "Press ", h("a", { href: UG_SEARCH + encodeURIComponent(song.title + " " + (song.artist || "")), target: "_blank", rel: "noopener", text: "Look up chords online ↗" }),
+      h("li", {}, "Press ", h("a", { href: lookUp, target: "_blank", rel: "noopener", text: "Look up chords online ↗" }),
         " and choose a version marked “Chords”."),
-      h("li", { text: "Select all the chords and words on that page and copy them." }),
-      h("li", { text: canRead ? "Come back here and press “Paste”, then “Save the chords”." : "Come back here, press and hold in the box below, choose Paste, then press “Save the chords”." })),
+      h("li", { text: "On the chords page, press and hold on any words, choose “Select all”, then “Copy”. (No need to pick out just the chords — the whole page is fine.)" }),
+      h("li", { text: canRead ? "Come back to My Songs and press the gold “Paste” button." : "Come back to My Songs, press and hold in the box below and choose “Paste”." })),
     canRead ? h("button", { class: "btn big gold", type: "button", onclick: pasteNow, text: "📋 Paste" }) : null,
+    msg,
     h("label", { for: "pc", class: "field-label", text: "Chords and words" }),
-    box, msg,
+    box,
     h("div", { class: "form-buttons" },
       h("button", { class: "btn big green", type: "button", onclick: saveIt, text: "✓ Save the chords" }),
       h("a", { class: "btn big secondary", href: "#/song/" + encodeURIComponent(song.id), "data-nav": "back", text: "Cancel" })));
 
+  // Pasting straight into the box is tidied the same way.
+  box.addEventListener("paste", e => {
+    const raw = e.clipboardData && e.clipboardData.getData("text/plain");
+    if (!raw) return;
+    e.preventDefault();
+    fill(raw);
+  });
+
   async function pasteNow() {
-    try { box.value = await navigator.clipboard.readText(); msg.textContent = ""; }
-    catch { msg.textContent = "The tablet didn't allow pasting that way. Press and hold in the box, then choose Paste."; box.focus(); }
+    try { fill(await navigator.clipboard.readText()); }
+    catch { msg.className = "form-msg"; msg.textContent = "The tablet didn't allow pasting that way. Press and hold in the box below, then choose Paste."; box.focus(); }
   }
+
+  // Coming back from the chords website: if he's already allowed pasting once, fill it in for him.
+  const onBack = async () => {
+    if (!s.isConnected) { document.removeEventListener("visibilitychange", onBack); return; }
+    if (document.visibilityState !== "visible" || box.value.trim() || !canRead) return;
+    try {
+      const perm = navigator.permissions && await navigator.permissions.query({ name: "clipboard-read" });
+      if (!perm || perm.state !== "granted") return;
+      const raw = await navigator.clipboard.readText();
+      if (raw && songHasChords(extractSheet(raw).text)) fill(raw);
+    } catch { /* not allowed: he can press Paste */ }
+  };
+  document.addEventListener("visibilitychange", onBack);
+
   async function saveIt() {
-    const { text, capo } = cleanChordSheet(box.value, song.title);
+    const { text, capo } = cleanChordSheet(extractSheet(box.value).text, song.title);
     const lyrics = cleanLyrics(text);
-    if (!lyrics.trim()) { msg.textContent = "The box is empty. Paste the chords first."; return; }
-    if (!songHasChords(lyrics)) { msg.textContent = "No chords were found in that. Check you copied the chords page (it shows chords like G, Am or D7 above the words)."; return; }
+    if (!lyrics.trim()) { msg.className = "form-msg"; msg.textContent = "The box is empty. Paste the chords first."; return; }
+    if (!songHasChords(lyrics)) { msg.className = "form-msg"; msg.textContent = "No chords were found in that. Check you copied the chords page (it shows chords like G, Am or D7 above the words)."; return; }
     const keepWords = song.wordsOnly || (songHasChords(song.lyrics) ? undefined : song.lyrics);
     const rec = { ...song, lyrics, capo, transpose: 0, updated: Date.now() };
     delete rec.playCapo;
@@ -1094,7 +1132,8 @@ function showHelp() {
     sec("Chords for guitar or bass",
       "Press “Chords” at the bottom of a song. Choose Guitar, Bass or Words only.",
       "Key changes the key up or down. Capo shows the shapes to play with a capo.",
-      "If a song has no chords yet, press “Look up chords online”, copy the chords, then “Paste the chords”."),
+      "If a song has no chords yet, press “Look up chords online” and pick a version marked Chords.",
+      "On that page, press and hold on any words, choose “Select all”, then “Copy”. Come back and press “Paste”: My Songs keeps just the chords and words."),
     sec("Folders for gigs",
       "Press “Folders” at the top of the home screen, then “New folder” (for example Gig 01).",
       "Press “Add songs” and tick the songs. Use “Change the order” to move them up or down.",

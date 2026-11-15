@@ -172,6 +172,19 @@ Sing it out, the day is long
 B|---1-----3-----0-------|[/tab]
 """
 
+# What "Select all → Copy" on a chords website gives: menus, the sheet, comments, an A–Z list, footer.
+# (Website furniture modelled on a real chords page; the song and words are made up.)
+WHOLE_PAGE = "\n".join(
+    ["Tabs", "Courses", "Songbooks", "Articles", "Forums", "Pro+", "Search", "EN", "Install",
+     "Long Song Chords by Endless", "12,345 views1,234 saves15 comments", "Author: someone [a] 12 contributorDifficulty: novice",
+     "Download PDF", "Save", "Edit", "Autoscroll", "Speed: 0.2", "Transpose", "Backing track", "Capo: 3rd fret", ""]
+    + CHORD_SHEET.replace("Sunny Road - The Test Band\nCapo: 2nd fret\n", "").replace("[tab]", "").replace("[/tab]", "").replace("[ch]", "").replace("[/ch]", "").split("\n")
+    + ["", "Last update: Mar 3, 2021", "X", "Rating", "4.8", "Please rate this tab", "15 comments",
+       "Great tab, really easy to follow and sounds just like the record, thanks so much for posting this one",
+       "Does anyone know the strumming for the chorus?", "Reply", "G", "C", "D", "Em", "Am7", "D/F#", ""]
+    + list("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+    + ["discover", "About UG", "Site Rules", "Terms of Service", "Privacy Policy", "© 2026", "All rights reserved", "GET SPECIAL OFFER"])
+
 CONTRAST_JS = r"""() => {
   const parse = c => { const m = c.match(/rgba?\(([^)]+)\)/); if (!m) return null; const p = m[1].split(',').map(x => parseFloat(x)); return { r: p[0], g: p[1], b: p[2], a: p.length > 3 ? p[3] : 1 }; };
   const lum = c => { const f = v => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }; return 0.2126 * f(c.r) + 0.7152 * f(c.g) + 0.0722 * f(c.b); };
@@ -403,6 +416,32 @@ def journeys():
         expect(page.locator("#toast")).to_contain_text("Chords removed")
         rec("CHORDS", page.locator(".chord").count() == 0 and "Morning light upon the water" in page.locator(".song-body").inner_text(),
             "removing chords brings the original words back")
+        print("Copying a whole chords web page")
+        ctx.grant_permissions(["clipboard-read", "clipboard-write"], origin=BASE.rstrip("/"))
+        page.goto(BASE + "#/")
+        page.locator(".tile", has_text="Long Song").click()
+        page.wait_for_url("**#/song/*")
+        long_url = page.url.split("?")[0]
+        page.click('[data-act="chords"]')
+        page.click(".modal >> text=Paste the chords")
+        page.wait_for_url("**#/chords/*")
+        page.evaluate("t => navigator.clipboard.writeText(t)", WHOLE_PAGE)
+        page.click("button:has-text('Paste')")
+        expect(page.locator(".form-msg")).to_contain_text("left out")
+        got = page.input_value("#pc")
+        junk = [j for j in ("Download PDF", "Great tab", "Rating", "About UG", "Autoscroll", "\nZ\n", "Last update") if j in got]
+        rec("CHORDS", not junk and "Morning light upon the water" in got and "Sing it out, the day is long" in got,
+            "“Select all → Copy” of a whole chords page: just the chords and words are kept" + (f" (junk left: {junk})" if junk else ""))
+        page.click("button:has-text('Save the chords')")
+        page.wait_for_url(long_url)
+        rec("KEY-CAPO", "Capo 3" in page.locator(".chord-info").inner_text(), "the page's “Capo: 3rd fret” is still picked up")
+        rec("CHORDS", page.locator(".chord").first.inner_text() == "G" and page.locator("pre.tabnotes").count() == 1, "chords and tab from the whole page shown")
+        # Coming back from the website with the chords already copied fills them in by itself.
+        page.goto(long_url.replace("#/song/", "#/chords/"))
+        page.locator("#pc").wait_for()
+        page.evaluate("document.dispatchEvent(new Event('visibilitychange'))")
+        expect(page.locator(".form-msg")).to_contain_text("Found the chords")
+        rec("CHORDS", "Morning light" in page.input_value("#pc"), "returning from the chords website fills the chords in by itself")
         page.goto(song_url.replace("#/song/", "#/chords/"))
         page.fill("#pc", CHORD_SHEET)
         page.click("button:has-text('Save the chords')")

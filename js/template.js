@@ -125,6 +125,57 @@ export function groupLines(lines) {
   return blocks;
 }
 
+// "Select all" on a chords website copies the whole page: menus, ratings, comments, footer...
+// Find the chord sheet inside it: the stretch of lines richest in chords (a "best stretch"
+// search: chord lines and section names score points, other lines lose a point, so menus and
+// comments fall away). Only used when there's plenty of page text around the sheet, so a
+// sheet pasted on its own is left exactly as it is.
+export function extractSheet(text) {
+  const lines = String(text || "").replace(/\r\n?/g, "\n").split("\n");
+  const single = l => /^\s*[A-Z]\s*$/.test(l);
+  const kinds = lines.map(l => {
+    if (!l.trim()) return "_";
+    if (TAB_LINE.test(l)) return "T";
+    if (sectionLabel(l) || /^\s*\[[^\]\n]{1,30}\]\s*$/.test(l)) return "S";
+    const lab = LABELLED_CHORDS.exec(l);
+    if (isChordLine(l) || (lab && isChordLine(lab[2]))) return "C";
+    if (hasInlineChords(l)) return "I";
+    return "w";
+  });
+  // An A–Z list of single letters (site navigation) isn't chords.
+  const near = (i, d) => { for (let j = i + d; j >= 0 && j < lines.length; j += d) if (lines[j].trim()) return j; return -1; };
+  kinds.forEach((k, i) => {
+    if (!single(lines[i])) return;
+    const c = lines[i].trim().charCodeAt(0);
+    for (const d of [-1, 1]) {
+      const j = near(i, d);
+      if (j >= 0 && single(lines[j]) && Math.abs(lines[j].trim().charCodeAt(0) - c) === 1) kinds[i] = "J";
+    }
+  });
+  const weight = (k, i) => {
+    if (k === "C") return 2;
+    if (k === "I") return 3;
+    if (k === "S") return 2;
+    if (k === "T") return 1;
+    if (k === "J") return -2;
+    if (k === "w") return i > 0 && kinds[i - 1] === "C" ? 1 : -1;   // words under a chord line belong
+    return 0;
+  };
+  let best = 0, bestA = -1, bestB = -1, sum = 0, a = 0;
+  kinds.forEach((k, i) => {
+    if (sum <= 0) { sum = 0; a = i; }
+    sum += weight(k, i);
+    if (sum > best) { best = sum; bestA = a; bestB = i; }
+  });
+  if (bestA < 0 || best < 6) return { text, removed: 0 };
+  while (bestA < bestB && kinds[bestA] === "_") bestA++;
+  const outside = lines.filter((l, i) => (i < bestA || i > bestB) && l.trim()).length;
+  if (outside < 12) return { text, removed: 0 };    // looks like just the sheet: keep it all
+  // Keep any "Capo" line from the page header so the capo is still picked up.
+  const capo = lines.slice(0, bestA).filter(l => /^\s*capo\b/i.test(l)).slice(-1);
+  return { text: capo.concat(lines.slice(bestA, bestB + 1)).join("\n"), removed: outside };
+}
+
 // Lyrics text with chords removed, used for searching and for spotting repeated choruses.
 export function plainWords(text) {
   const chordLines = countChordLines(text) >= 2;

@@ -26,7 +26,7 @@ Uses a Samsung Galaxy Tab A7, usually sitting down with the tablet upright (port
 - [THEMES] Light, dark and extra-contrast colours.
 
 ## Chords
-- [CHORDS] Songs can carry chords (pasted from a chords website, with a one-tap "Look up chords" link).
+- [CHORDS] Songs can carry chords (pasted from a chords website, with a one-tap "Look up chords" link). "Select all → Copy" of the whole chords page is enough: the app keeps just the chords and words.
 - [INSTRUMENT] Switch between Guitar (chord names + shapes), Bass (bass notes + where to play them) and words only.
 - [KEY-CAPO] Change key up/down; capo for guitar; a "Capo 2" on a pasted sheet is picked up.
 - [CHORD-SHAPES] Every guitar shape and bass position is musically correct (`tools/check_chords.mjs`).

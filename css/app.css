@@ -308,6 +308,7 @@ body.has-toolbar .screen { padding-bottom: calc(env(safe-area-inset-bottom) + 14
 .tip summary { font-weight: 700; cursor: pointer; min-height: 52px; display: flex; align-items: center; }
 .tip pre { font-size: 1rem; background: var(--surface-soft); padding: 10px 14px; border-radius: 10px; overflow-x: auto; }
 .form-msg { color: var(--danger); font-weight: 700; min-height: 1.4em; }
+.form-msg.good { color: var(--green); }
 .form-buttons { display: flex; gap: 12px; flex-wrap: wrap; }
 .form-buttons .btn.green { flex: 1; }
 
