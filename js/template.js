@@ -3,7 +3,8 @@
 // textContent, never innerHTML.
 
 const SECTION_WORDS = "verse|chorus|pre-chorus|pre chorus|prechorus|post-chorus|bridge|intro|outro|hook|refrain|interlude|solo|guitar solo|instrumental|tag|coda|breakdown|middle 8|middle eight|ending";
-const SECTION_BRACKETED = new RegExp(`^\\s*[\\[(]\\s*(${SECTION_WORDS})\\b[^\\])]{0,40}[\\])]\\s*:?\\s*$`, "i");
+// "[Chorus]", "[Verse 2: Name]", "(Chorus x2)" — but not a sung line like "(Bridge over the water)".
+const SECTION_BRACKETED = new RegExp(`^\\s*[\\[(]\\s*(${SECTION_WORDS})(\\s*\\d+)?\\s*(\\(?x\\s*\\d+\\)?)?\\s*(:[^\\])]{0,60})?\\s*[\\])]\\s*:?\\s*$`, "i");
 const SECTION_PLAIN = new RegExp(`^\\s*(${SECTION_WORDS})(\\s*\\d+)?\\s*(\\(?x\\s*\\d+\\)?)?\\s*:?\\s*$`, "i");
 const CHORUS_WORDS = /chorus|refrain|hook/i;
 
@@ -30,7 +31,8 @@ export function isChordLine(line) {
 
 export function sectionLabel(line) {
   if (SECTION_BRACKETED.test(line) || SECTION_PLAIN.test(line)) {
-    return line.trim().replace(/^[\[(]\s*/, "").replace(/\s*[\])]\s*:?\s*$/, "").replace(/:\s*$/, "").trim();
+    // "[Verse 2: Ann & Bob]" -> "Verse 2" (the singers' names aren't needed on the page).
+    return line.trim().replace(/^[\[(]\s*/, "").replace(/\s*[\])]\s*:?\s*$/, "").replace(/:.*$/, "").trim();
   }
   return null;
 }
@@ -47,7 +49,9 @@ export function cleanLyrics(text) {
   if (!text) return "";
   let t = String(text).replace(/\r\n?/g, "\n").replace(/ /g, " ").replace(/\t/g, "    ");
   t = t.replace(/^\s*Paroles de la chanson[^\n]*\n/i, ""); // added by lyrics.ovh
-  t = t.replace(/^\[\d{1,2}:\d{2}(?:[.:]\d{1,3})?\]\s?/gm, ""); // timestamps from synced lyrics
+  t = t.replace(/^\s*\[(ar|ti|al|au|by|length|offset|re|ve|tool|#):[^\]\n]*\]\s*$/gim, ""); // synced-lyrics tags
+  t = t.replace(/^(?:\[\d{1,3}:\d{2}(?:[.:]\d{1,3})?\]\s?)+/gm, "");           // timestamps from synced lyrics
+  t = t.replace(/<\d{1,3}:\d{2}(?:[.:]\d{1,3})?>\s?/g, "");                     // word-by-word timestamps
   const lines = t.split("\n").map(l => l.replace(/\s+$/, ""))
     .filter(l => !/^\s*\d*\s*Embed\s*$/i.test(l) && !/^\s*You might also like\s*$/i.test(l));
   const out = [];
@@ -57,6 +61,66 @@ export function cleanLyrics(text) {
   }
   while (out.length && out[out.length - 1] === "") out.pop();
   return out.join("\n");
+}
+
+// Lyrics from the internet sometimes arrive as one long wall of lines with no gaps, or with a
+// gap after every single line. Both are hard to follow at a distance, so split them into verses,
+// using lines that repeat as the chorus. (Text typed in by hand is left exactly as typed.)
+export function tidyFetched(text) {
+  const t = cleanLyrics(text);
+  if (!t || t.split("\n").some(l => sectionLabel(l))) return t;
+  const stanzas = t.split(/\n\n/);
+  const lines = t.split("\n").filter(l => l.trim());
+  const singles = stanzas.filter(s => !s.includes("\n")).length;
+  const doubleSpaced = stanzas.length >= 6 && singles / stanzas.length > 0.6;
+  const wall = stanzas.some(s => s.split("\n").length > 14);
+  if (!doubleSpaced && !wall) return t;
+  if (doubleSpaced) return groupLines(lines).map(b => b.join("\n")).join("\n\n");
+  // Only break up the over-long verses; keep the gaps that were already there.
+  return stanzas.map(s => {
+    const ls = s.split("\n");
+    return ls.length > 14 ? groupLines(ls).map(b => b.join("\n")).join("\n\n") : s;
+  }).join("\n\n");
+}
+
+export function groupLines(lines) {
+  const n = lines.length;
+  const key = lines.map(l => norm(l));
+  const taken = new Array(n).fill(false);
+  const starts = new Map(); // start index -> length of a repeated run
+  const free = (i, k) => { for (let x = i; x < i + k; x++) if (taken[x] || !key[x]) return false; return true; };
+  const take = (i, k) => { for (let x = i; x < i + k; x++) taken[x] = true; starts.set(i, k); };
+  // Longest repeated runs first (a chorus is usually 2–8 lines).
+  for (let k = Math.min(8, Math.floor(n / 2)); k >= 2; k--) {
+    for (let i = 0; i + k <= n; i++) {
+      if (!free(i, k)) continue;
+      const sig = key.slice(i, i + k).join("|");
+      const repeats = [];
+      for (let j = i + k; j + k <= n; j++) {
+        if (free(j, k) && key.slice(j, j + k).join("|") === sig) { repeats.push(j); j += k - 1; }
+      }
+      if (repeats.length) { take(i, k); for (const j of repeats) take(j, k); }
+    }
+  }
+  const blocks = [];
+  let run = [];
+  const flush = () => {
+    if (!run.length) return;
+    if (run.length <= 6) blocks.push(run);
+    else {
+      // Split long verses into fours; don't leave a lonely line at the end.
+      for (let x = 0; x < run.length; x += 4) blocks.push(run.slice(x, x + 4));
+      const last = blocks[blocks.length - 1];
+      if (last.length === 1 && blocks.length > 1) { blocks.pop(); blocks[blocks.length - 1].push(...last); }
+    }
+    run = [];
+  };
+  for (let i = 0; i < n;) {
+    if (starts.has(i)) { flush(); const k = starts.get(i); blocks.push(lines.slice(i, i + k)); i += k; }
+    else { run.push(lines[i]); i++; }
+  }
+  flush();
+  return blocks;
 }
 
 // Lyrics text with chords removed, used for searching and for spotting repeated choruses.

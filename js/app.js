@@ -1,9 +1,9 @@
 // My Songs: a big-print lyrics library for Dad's tablet.
 import { renderSong, firstLine, plainWords, cleanLyrics } from "./template.js";
 import * as db from "./db.js";
-import { findSongs, fetchOvhLyrics, LookupError } from "./online.js";
+import { findSongs, fetchLyricsFor, LookupError } from "./online.js";
 
-const VERSION = "1.0.0";
+const VERSION = "1.1.0";
 const main = document.getElementById("main");
 const toastEl = document.getElementById("toast");
 
@@ -49,11 +49,40 @@ function h(tag, attrs = {}, ...kids) {
   return e;
 }
 
+// Navigation keeps a depth counter in the history, so "← My Songs" can step back to the
+// home screen instead of piling up new pages behind it, and the tablet's own Back button
+// always goes where he expects.
+const depth = () => (history.state && typeof history.state.depth === "number" ? history.state.depth : 0);
+
 function go(path, replace = false) {
   const url = "#" + path;
-  if (replace) location.replace(url);
-  else location.hash = path;
+  if (replace) history.replaceState({ depth: depth() }, "", url);
+  else history.pushState({ depth: depth() + 1 }, "", url);
+  route();
 }
+
+function goHome() {
+  const d = depth();
+  if (d > 0) history.go(-d);           // the first page is always the home screen
+  else go("/", true);
+}
+
+function goBack(fallback = "/") {
+  if (depth() > 0) history.back();
+  else go(fallback, true);
+}
+
+// Links inside the app go through go(), and "#/" links mean home.
+document.addEventListener("click", e => {
+  if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey) return;
+  const a = e.target.closest && e.target.closest('a[href^="#/"]');
+  if (!a) return;
+  e.preventDefault();
+  const path = a.getAttribute("href").slice(1);
+  if (a.dataset.nav === "back") goBack(path);
+  else if (path === "/") goHome();
+  else go(path);
+});
 
 let toastTimer = null;
 function toast(msg, ms = 3500) {
@@ -65,7 +94,8 @@ function toast(msg, ms = 3500) {
 
 function confirmBox(message, yes, no) {
   return new Promise(resolve => {
-    const close = val => { wrap.remove(); resolve(val); };
+    const close = val => { wrap.remove(); closeModal = null; resolve(val); };
+    closeModal = close;
     const wrap = h("div", { class: "modal-wrap", role: "dialog", "aria-modal": "true", "aria-label": message },
       h("div", { class: "modal" },
         h("p", { class: "modal-text", text: message }),
@@ -179,6 +209,8 @@ function updateScrollButton() {
 // ---------- Router ----------
 
 let renderToken = 0;
+let routedHash = null;
+let closeModal = null;
 let libraryScroll = 0;
 let lastQuery = sessionStorage.getItem("my-songs-q") || "";
 let lastResults = null; // { q, results }
@@ -186,14 +218,18 @@ let pending = null;     // song being previewed before saving
 
 async function route() {
   const token = ++renderToken;
+  routedHash = location.hash;
   stopScrolling();
   letScreenSleep();
+  if (closeModal) closeModal(false);
   onSongScreen = false;
   document.body.className = "";
-  const hash = decodeURIComponentSafe(location.hash.slice(1)) || "/";
-  const [path, query] = hash.split("?");
-  const params = new URLSearchParams(query || "");
-  const parts = path.split("/").filter(Boolean);
+  // Split before decoding, so song names with & + % or ? in them survive.
+  const raw = location.hash.slice(1) || "/";
+  const qAt = raw.indexOf("?");
+  const path = qAt < 0 ? raw : raw.slice(0, qAt);
+  const params = new URLSearchParams(qAt < 0 ? "" : raw.slice(qAt + 1));
+  const parts = path.split("/").filter(Boolean).map(decodeURIComponentSafe);
   const stale = () => token !== renderToken;
 
   if (!parts.length) return showLibrary(stale);
@@ -217,8 +253,8 @@ function screen(cls, ...kids) {
   return s;
 }
 
-function backButton(label = "My Songs", href = "#/") {
-  return h("a", { class: "btn back", href }, h("span", { class: "arrow", "aria-hidden": "true", text: "←" }), " " + label);
+function backButton(label = "My Songs", href = "#/", back = false) {
+  return h("a", { class: "btn back", href, "data-nav": back ? "back" : null }, h("span", { class: "arrow", "aria-hidden": "true", text: "←" }), " " + label);
 }
 
 // ---------- Screen: My Songs ----------
@@ -237,7 +273,8 @@ function showLibrary() {
     h("div", { class: "top" },
       h("h1", { class: "app-title" }, h("span", { class: "note", "aria-hidden": "true", text: "♪" }), " My Songs"),
       h("a", { class: "btn small secondary", href: "#/settings", text: "Settings" })),
-    h("div", { class: "search-row" }, h("label", { for: "q", class: "vh", text: "Find a song" }), input, clear),
+    h("form", { class: "search-row", role: "search", onsubmit: e => { e.preventDefault(); submitSearch(); } },
+      h("label", { for: "q", class: "vh", text: "Find a song" }), input, clear),
     addBtn, count, list);
 
   function draw() {
@@ -294,19 +331,21 @@ function showLibrary() {
   }
 
   input.addEventListener("input", draw);
-  input.addEventListener("keydown", e => {
-    if (e.key !== "Enter") return;
-    e.preventDefault();
+  function submitSearch() {
     const q = input.value.trim();
     const { byName, byWords } = findInLibrary(q);
-    if (q && !byName.length && !byWords.length) go("/find?q=" + encodeURIComponent(q));
+    if (q && !byName.length && !byWords.length) { clearHomeSearch(); go("/find?q=" + encodeURIComponent(q)); }
     else input.blur();
-  });
+  }
+  // Looking online starts afresh, so the home box isn't left holding an unmatched search.
+  addBtn.addEventListener("click", () => { if (input.value.trim()) clearHomeSearch(); });
   clear.addEventListener("click", () => { input.value = ""; draw(); input.focus(); });
   draw();
   if (libraryScroll) { window.scrollTo(0, libraryScroll); libraryScroll = 0; }
   return s;
 }
+
+function clearHomeSearch() { lastQuery = ""; sessionStorage.removeItem("my-songs-q"); }
 
 // ---------- Screen: Find a new song ----------
 
@@ -328,11 +367,13 @@ function showFind(q) {
   const s = screen("find", backButton(), h("h1", { text: "Find a new song" }), form, status, results, manual);
 
   let busy = 0;
+  let choosing = false;
   async function search(text) {
     const query = text.trim();
     if (!query) { status.textContent = "Type the name of a song first."; input.focus(); return; }
     input.blur();
-    history.replaceState(null, "", "#/find?q=" + encodeURIComponent(query));
+    history.replaceState({ depth: depth() }, "", "#/find?q=" + encodeURIComponent(query));
+    routedHash = location.hash;
     manual.querySelector("a").href = "#/new?q=" + encodeURIComponent(query);
     if (lastResults && lastResults.q === query) return show(lastResults.results, query);
     const mine = ++busy;
@@ -371,16 +412,20 @@ function showFind(q) {
   }
 
   async function choose(r) {
-    let lyrics = r.lyrics;
-    if (!lyrics) {
+    if (choosing) return;
+    if (!r.lyrics) {
+      choosing = true;
       status.textContent = "";
       status.append(h("span", { class: "spinner", "aria-hidden": "true" }), " Getting the words…");
-      try { lyrics = await fetchOvhLyrics(r); } catch { lyrics = null; }
+      let got = null;
+      try { got = await fetchLyricsFor(r); } catch { got = null; }
+      choosing = false;
       if (!s.isConnected) return;
-      if (!lyrics) { status.textContent = `Sorry, the words for “${r.title}” couldn't be found. Try another one, or type them in yourself.`; return; }
-      r.lyrics = lyrics;
+      if (!got) { status.textContent = `Sorry, the words for “${r.title}” couldn't be found. Try another one, or type them in yourself.`; return; }
+      r.lyrics = got.lyrics;
+      r.source = got.source;
     }
-    pending = { title: r.title, artist: r.artist, lyrics, source: r.source };
+    pending = { title: r.title, artist: r.artist, lyrics: r.lyrics, source: r.source };
     go("/preview");
   }
 
@@ -403,7 +448,7 @@ function showPreview() {
 
   const s = screen("preview",
     h("div", { class: "preview-bar" },
-      h("button", { class: "btn back", type: "button", onclick: () => history.back() }, h("span", { class: "arrow", "aria-hidden": "true", text: "←" }), " Back"),
+      h("button", { class: "btn back", type: "button", onclick: () => goBack("/find") }, h("span", { class: "arrow", "aria-hidden": "true", text: "←" }), " Back"),
       openBtn(), saveBtn()),
     h("p", { class: "hint", text: have
       ? "You already have this song in My Songs."
@@ -438,7 +483,7 @@ function showPreview() {
 // ---------- Screen: A song ----------
 
 async function showSong(id, stale) {
-  const song = id ? await db.getSong(decodeURIComponentSafe(id)) : null;
+  const song = id ? await db.getSong(id) : null;
   if (stale()) return;
   if (!song) { toast("That song isn't in My Songs any more."); go("/", true); return; }
 
@@ -520,7 +565,7 @@ async function showSong(id, stale) {
     if (!ok) return;
     await db.deleteSong(song.id);
     await loadLibrary();
-    go("/", true);
+    goHome();
     toast(`“${song.title}” was removed.`);
   }
   return s;
@@ -529,7 +574,7 @@ async function showSong(id, stale) {
 // ---------- Screen: Add or change a song by hand ----------
 
 async function showEdit(id, q, stale) {
-  const song = id ? await db.getSong(decodeURIComponentSafe(id)) : null;
+  const song = id ? await db.getSong(id) : null;
   if (stale && stale()) return;
   if (id && !song) { go("/", true); return; }
 
@@ -540,7 +585,7 @@ async function showEdit(id, q, stale) {
   const msg = h("p", { class: "form-msg", role: "alert" });
 
   const s = screen("edit",
-    backButton("Cancel", song ? "#/song/" + encodeURIComponent(song.id) : "#/"),
+    backButton("Cancel", song ? "#/song/" + encodeURIComponent(song.id) : "#/", true),
     h("h1", { text: song ? "Change this song" : "Add a song yourself" }),
     h("label", { for: "et", class: "field-label", text: "Song name" }), title,
     h("label", { for: "ea", class: "field-label", text: "Singer or band" }), artist,
@@ -557,7 +602,7 @@ async function showEdit(id, q, stale) {
     msg,
     h("div", { class: "form-buttons" },
       h("button", { class: "btn big green", type: "button", onclick: save, text: "✓ Save" }),
-      h("a", { class: "btn big secondary", href: song ? "#/song/" + encodeURIComponent(song.id) : "#/", text: "Cancel" })));
+      h("a", { class: "btn big secondary", href: song ? "#/song/" + encodeURIComponent(song.id) : "#/", "data-nav": "back", text: "Cancel" })));
 
   if (!song) setTimeout(() => (q ? words : title).focus(), 50);
 
@@ -572,7 +617,8 @@ async function showEdit(id, q, stale) {
       await db.putSong(rec);
       db.keepSafe();
       await loadLibrary();
-      go("/song/" + encodeURIComponent(rec.id), true);
+      if (song && depth() > 0) goBack("/song/" + encodeURIComponent(rec.id)); // back to the song, now updated
+      else go("/song/" + encodeURIComponent(rec.id), true);
       toast("Saved ✓");
     } catch (e) {
       console.error(e);
@@ -585,6 +631,8 @@ async function showEdit(id, q, stale) {
 // ---------- Screen: Settings ----------
 
 let installPrompt = null;
+// Redraw Settings only if he's still on it (a slow redraw mustn't cover the page he moved to).
+function refreshSettings() { if (location.hash.startsWith("#/settings")) route(); }
 window.addEventListener("beforeinstallprompt", e => { e.preventDefault(); installPrompt = e; });
 
 async function showSettings(stale) {
@@ -593,7 +641,7 @@ async function showSettings(stale) {
 
   const themeBtn = (value, label) => h("button", {
     class: "choice" + (settings.theme === value ? " on" : ""), type: "button", "aria-pressed": settings.theme === value ? "true" : "false",
-    onclick: () => { settings.theme = value; saveSettings(); applyTheme(); showSettings(() => false); },
+    onclick: () => { settings.theme = value; saveSettings(); applyTheme(); refreshSettings(); },
   }, label);
 
   const sample = h("p", { class: "size-sample", text: "This is how big the words will be." });
@@ -602,7 +650,7 @@ async function showSettings(stale) {
     settings.size = clamp(settings.size + d, 0, SIZES.length - 1); saveSettings(); sample.style.fontSize = SIZES[settings.size] + "px";
   } }, label);
 
-  const fileIn = h("input", { type: "file", accept: ".json,application/json", class: "vh", id: "restore" });
+  const fileIn = h("input", { type: "file", class: "vh", id: "restore" });
   fileIn.addEventListener("change", async () => {
     const f = fileIn.files && fileIn.files[0];
     fileIn.value = "";
@@ -613,7 +661,7 @@ async function showSettings(stale) {
       await loadLibrary();
       db.keepSafe();
       toast(`Backup loaded: ${r.added} new song${r.added === 1 ? "" : "s"}, ${r.updated} updated.`, 5000);
-      showSettings(() => false);
+      refreshSettings();
     } catch (e) {
       console.warn("Backup not loaded:", e);
       toast("That file isn't a My Songs backup.", 5000);
@@ -676,16 +724,23 @@ async function showSettings(stale) {
     installPrompt.prompt();
     try { await installPrompt.userChoice; } catch { /* dismissed */ }
     installPrompt = null;
-    showSettings(() => false);
+    refreshSettings();
   }
   return s;
 }
 
 // ---------- Start ----------
 
-window.addEventListener("hashchange", route);
+// Back/forward and any hash typed by hand. (Both events can fire for one step; route once.)
+const onNav = () => { if (location.hash !== routedHash) route(); };
+window.addEventListener("popstate", onNav);
+window.addEventListener("hashchange", onNav);
 
 (async () => {
+  // Always start with the home screen as the first page, so Back never leaves the app by surprise.
+  const start = location.hash && location.hash !== "#" && location.hash !== "#/" ? location.hash : null;
+  history.replaceState({ depth: 0 }, "", "#/");
+  if (start) history.pushState({ depth: 1 }, "", start);
   await loadLibrary();
   route();
 })();

@@ -20,6 +20,9 @@ VERSE_B = "Paper boats and painted windows\nOld guitar beside the door\nEvery ch
 SUNNY = "\n\n".join([VERSE_A, CHORUS, VERSE_B, CHORUS, "Carry on, carry on"])
 LONG = "\n\n".join([SUNNY] * 4)
 
+WALL = "\n".join([VERSE_A, CHORUS, VERSE_B, CHORUS, "Carry on, carry on", "Carry on home", CHORUS])  # no gaps at all
+DOUBLE = "\n\n".join((VERSE_A + "\n" + CHORUS + "\n" + VERSE_B + "\n" + CHORUS).split("\n"))   # a gap after every line
+
 LRC_RESULTS = [
     {"id": 1, "trackName": "Sunny Road", "artistName": "The Test Band", "albumName": "Pretend", "instrumental": False, "plainLyrics": SUNNY, "syncedLyrics": None},
     {"id": 2, "trackName": "Sunny Road", "artistName": "The Test Band", "albumName": "Live", "instrumental": False, "plainLyrics": SUNNY, "syncedLyrics": None},
@@ -27,6 +30,9 @@ LRC_RESULTS = [
     {"id": 4, "trackName": "Sunny Road Home", "artistName": "Another Singer", "instrumental": False, "plainLyrics": None,
      "syncedLyrics": "[00:01.00] Down the sunny road home\n[00:04.50] Where the green hills roll"},
     {"id": 5, "trackName": "Long Song", "artistName": "Endless", "instrumental": False, "plainLyrics": LONG},
+    {"id": 6, "trackName": "The Test Band - Wall Song (2011 Remaster)", "artistName": "The Test Band", "instrumental": False, "plainLyrics": WALL},
+    {"id": 7, "trackName": "Wall Song", "artistName": "The Test Band", "instrumental": False, "plainLyrics": WALL},
+    {"id": 8, "trackName": "Gappy Song", "artistName": "The Test Band", "instrumental": False, "plainLyrics": DOUBLE},
 ]
 
 state = {"lrclib": "ok", "ovh": "ok"}
@@ -37,10 +43,14 @@ def fake_routes(page):
         q = route.request.url
         if state["lrclib"] == "down":
             return route.abort()
-        if "nothinghere" in q or "obscure" in q:
+        if "nothinghere" in q or "obscure" in q or "Obscure" in q or "raod" in q:
             return route.fulfill(status=200, content_type="application/json", body="[]", headers={"Access-Control-Allow-Origin": "*"})
         if "long" in q.lower():
             body = [LRC_RESULTS[4]]
+        elif "wall" in q.lower():
+            body = LRC_RESULTS[5:7]
+        elif "gappy" in q.lower():
+            body = [LRC_RESULTS[7]]
         else:
             body = LRC_RESULTS[:4]
         route.fulfill(status=200, content_type="application/json", body=json.dumps(body), headers={"Access-Control-Allow-Origin": "*"})
@@ -51,7 +61,10 @@ def fake_routes(page):
             return route.abort()
         h = {"Access-Control-Allow-Origin": "*"}
         if "/suggest/" in url:
-            if "nothinghere" in url:
+            if "raod" in url or "sunny" in url:
+                data = {"data": [{"title": "Sunny Road", "artist": {"name": "The Test Band"}}]}
+                return route.fulfill(status=200, content_type="application/json", body=json.dumps(data), headers=h)
+            if "obscure" not in url:
                 return route.fulfill(status=200, content_type="application/json", body=json.dumps({"data": []}), headers=h)
             data = {"data": [
                 {"title": "Obscure Tune (Remastered 2011)", "artist": {"name": "Rare Folk"}, "album": {"title": "Deep Cuts"}},
@@ -192,6 +205,37 @@ def main():
         page.click(".find-form button")
         expect(page.locator(".status")).to_contain_text("Type the name of a song first")
 
+        print("Typos: the music catalogue's suggestion is used")
+        page.goto(BASE + "#/find?q=sunny%20raod")
+        expect(page.locator(".result").first).to_be_visible()
+        check("misspelt search still finds the song", page.locator(".result .tile-title").first.inner_text() == "Sunny Road")
+        page.locator(".result").first.click()
+        expect(page.locator(".preview-bar .save")).to_be_visible()
+        check("words fetched from LRCLIB by name", "Morning light upon the water" in page.locator(".song-body").inner_text())
+
+        print("Messy layouts from the internet are tidied")
+        page.goto(BASE + "#/find?q=wall%20song")
+        expect(page.locator(".result").first).to_be_visible()
+        check("singer's name and 'Remaster' taken out of the title, copies merged",
+              page.locator(".result .tile-title").all_inner_texts() == ["Wall Song"], page.locator(".result .tile-title").all_inner_texts())
+        page.locator(".result").first.click()
+        expect(page.locator(".preview-bar .save")).to_be_visible()
+        check("wall of lines split into verses", page.locator(".block").count() >= 6, page.locator(".block").count())
+        check("repeated lines shown as the chorus", page.locator(".block.chorus").count() == 3)
+        page.goto(BASE + "#/find?q=gappy")
+        expect(page.locator(".result").first).to_be_visible()
+        page.locator(".result").first.click()
+        expect(page.locator(".preview-bar .save")).to_be_visible()
+        check("gap-after-every-line layout joined back into verses", page.locator(".block").count() == 4, page.locator(".block").count())
+        check("and its chorus found", page.locator(".block.chorus").count() == 2)
+
+        print("Special characters in a search")
+        page.goto(BASE)
+        page.fill("#q", "simon & garfunkel + 100%")
+        page.press("#q", "Enter")
+        page.wait_for_url("**#/find*")
+        check("& + % survive the trip to the search page", page.input_value("#fq") == "simon & garfunkel + 100%", page.input_value("#fq"))
+
         print("Typing a song in with chords above the words")
         page.goto(BASE + "#/new?q=Campfire")
         check("title filled from search", page.input_value("#et") == "Campfire")
@@ -252,6 +296,36 @@ def main():
         check("no match message", "None of your songs match" in page.locator(".count").inner_text())
         page.click(".btn.clear")
         shot(page, "06-library")
+
+        print("Back buttons")
+        page.goto(BASE)
+        page.locator(".tile", has_text="Sunny Road").click()
+        page.wait_for_url("**#/song/*")
+        page.click("a.back")
+        expect(page.locator(".tile").first).to_be_visible()
+        check("My Songs returns to the first page (nothing piled up behind)", page.evaluate("history.state.depth") == 0)
+        page.locator(".tile", has_text="Sunny Road").click()
+        page.wait_for_url("**#/song/*")
+        page.go_back()
+        expect(page.locator(".tile").first).to_be_visible()
+        check("tablet Back from a song goes to My Songs", page.url.endswith("#/"))
+        page.locator(".tile", has_text="Campfire").click()
+        page.click("text=Change the words or add chords")
+        page.fill("#ea", "Dad and friends")
+        page.click(".form-buttons .btn.green")
+        expect(page.locator(".song-artist")).to_have_text("Dad and friends")
+        check("after changing a song, it's one page above My Songs", page.evaluate("history.state.depth") == 1)
+        page.go_back()
+        expect(page.locator(".tile").first).to_be_visible()
+        check("Back then reaches My Songs", page.url.endswith("#/"))
+        page.locator(".tile", has_text="Campfire").click()
+        page.click("text=Remove this song")
+        page.go_back()
+        check("Back closes the remove question without removing", page.locator(".modal-wrap").count() == 0)
+        expect(page.locator(".tile")).to_have_count(2)
+        page.goto(BASE + "#/song/does-not-exist")
+        expect(page.locator(".tile").first).to_be_visible()
+        check("a missing song goes home", page.url.endswith("#/"))
 
         print("Auto-scroll")
         page.goto(BASE + "#/find?q=long")
