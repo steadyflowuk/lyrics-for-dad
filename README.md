@@ -36,6 +36,9 @@ Plain HTML, CSS and JavaScript, no build step. Hosted on GitHub Pages.
   numbers). Report: `tools/check_report.md`. `--quick` skips the longer regression run.
 - Regression tests on their own: `python3 tools/test_app.py` (`--shots` saves screenshots).
 - Chord shapes on their own: `node tools/check_chords.mjs`.
+- Real chords pages: `tools/page_probe.js` compares what “Select all → Copy” would keep with a live
+  page's own chord sheet (run it in the page via jsDelivr; see the comment at the top). It reports
+  lost or extra lines without printing any sung words.
 
 Colours follow Aleph to Omega (navy, sage, gold, beige). Font: Atkinson Hyperlegible by the
 Braille Institute, SIL Open Font License 1.1 (see `assets/fonts/OFL.txt`).

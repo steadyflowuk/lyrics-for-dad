@@ -2,9 +2,9 @@
 import { renderSong, firstLine, plainWords, cleanLyrics, songHasChords, firstChord, extractSheet } from "./template.js";
 import * as db from "./db.js";
 import { findSongs, fetchLyricsFor, LookupError } from "./online.js";
-import { transposeChord, bassNote, prefersFlats, guitarDiagram, bassDiagram, cleanChordSheet, tuningShift, tuningName } from "./chords.js";
+import { transposeChord, bassNote, prefersFlats, guitarDiagram, bassDiagram, guitarShape, cleanChordSheet, tuningShift, tuningName } from "./chords.js";
 
-const VERSION = "2.0.1";
+const VERSION = "2.0.2";
 const main = document.getElementById("main");
 const toastEl = document.getElementById("toast");
 
@@ -606,7 +606,9 @@ async function showSong(id, stale, folderId) {
     if (!shapes.hidden) {
       for (const c of r.chords.slice(0, 24)) {
         const d = view.mode === "bass" ? bassDiagram(c) : guitarDiagram(c);
-        shapes.append(h("figure", { class: "shape" }, h("figcaption", { text: c }), d || h("span", { class: "no-shape", text: "?" })));
+        const g = view.mode === "bass" ? null : guitarShape(c);
+        shapes.append(h("figure", { class: "shape" }, h("figcaption", { text: c }), d || h("span", { class: "no-shape", text: "?" }),
+          g && !g.exact ? h("p", { class: "near", text: `Simpler: ${g.nearest}` }) : null));
       }
     }
     chordInfo.hidden = !hasChords || view.mode === "off";

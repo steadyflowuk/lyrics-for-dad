@@ -4,7 +4,7 @@
 // So closing the app and opening it again is all it takes to get an update.
 // Bump VERSION whenever an app file changes (tools/check_brief.py --fix does this).
 // Lyrics searches (lrclib.net, lyrics.ovh) are never cached here.
-const VERSION = "2026-11-15.7";
+const VERSION = "2026-11-15.8";
 const CACHE = `my-songs-${VERSION}`;
 const WAIT_MS = 3500;
 const FILES = [

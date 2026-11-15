@@ -341,6 +341,7 @@ export function mergeChordLine(chordLine, lyric) {
   return out;
 }
 
+const COUNT_LINE = /^(?=.*\S\s+\S\s+\S)[\s\d&+|\-.↓↑]*$|^(?=.*\s{2,})[\sDU↓↑x|\-.]+$/;
 const LABELLED_CHORDS = /^\s*[\[(]?\s*(intro|outro|interlude|solo|instrumental|riff|ending|bridge|verse|chorus|pre-chorus)[^:\])]{0,12}[\])]?\s*:?\s+(.+)$/i;
 
 // Build the template for a song into `root`.
@@ -399,6 +400,9 @@ export function renderSong(root, song, { show = c => c } = {}) {
         }
       } else if (hasInlineChords(line)) {
         sec.append(inlineChordLine(line, note));
+      } else if (COUNT_LINE.test(line)) {
+        // Counts and strum patterns ("1  2  3  &", "D  DU  UDU") keep their spacing.
+        sec.append(el("pre", "counts", line));
       } else {
         sec.append(el("div", "line", line));
       }

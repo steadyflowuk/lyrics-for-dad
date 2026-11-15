@@ -185,6 +185,54 @@ WHOLE_PAGE = "\n".join(
     + list("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
     + ["discover", "About UG", "Site Rules", "Terms of Service", "Privacy Policy", "© 2026", "All rights reserved", "GET SPECIAL OFFER"])
 
+# A made-up sheet with everything a player needs, in the awkward places real sheets put it.
+GIG_SHEET = [
+    "(Guitar tuning: Eb, Ab, Db, Gb, Bb, Eb - half a step down)",
+    "Strum: D DU UDU",
+    "",
+    "[Intro]",
+    "e|-----0-----2-----3-----|",
+    "Eb|----1-----3-----0------|",
+    "Bb|--0---0-------------0--|",
+    "",
+    "[Verse 1]",
+    "Spoken softly at the start",
+    "G                 C",
+    "Morning light upon the water",
+    "(Em)        D/F#        Gm(maj7)",
+    "Walking slow along the shore",
+    "1  2  3    1  2 & 3 &",
+    "",
+    "[Chorus]",
+    "C       G      Am7     D   (x2)",
+    "Sing it out, the road is sunny",
+    "Key: A",
+    "Cadd9           Asus4(2)",
+    "Sing it out, the day is long",
+    "",
+    "[Verse 2]",
+    "Paper boats and painted windows",
+    "Old guitar beside the door",
+    "",
+    "[Outro]",
+    "G  C  G  D  N.C.",
+    "Carry on, carry on",
+    "Carry on home",
+]
+PHONE_PAGE = "\n".join(
+    ["Rating: ★ 4.8 / 5 (6,730)", "Difficulty: Beginner", "Tuning: Eb Ab Db Gb Bb Eb", "Key: D", "Author: someone",
+     "Last edit: Aug 6, 2026", "Add to favorites", "CHORDS", "GUITAR", "G", "PLAY", "C", "PLAY", "D", "PLAY", "VIEW IN APP",
+     "STRUMMING", "125 bpm", "1", "&", "2", "&", "3", "&", "4", "&", "VIEW IN APP", "TRANSPOSE", "LISTEN", "PDF", ""]
+    + GIG_SHEET + ["", "X", "Print", "Report Bad Tab", "Please rate this tab", "6,730", "VERSIONS", "Official", "9,388", "Ver 1",
+                   "Great tab, thanks!", "Reply"] + list("ABCDEFGHIJKLMNOPQRSTUVWXYZ"))
+TABLET_PAGE = "\n".join(
+    ["Tabs", "Courses", "Search", "Wall Song Chords by The Test Band", "1,234 views55 saves3 comments",
+     "Author: someone [a] 12 contributorDifficulty: novice", "Download PDF", "Save", "Edit", "Autoscroll", "Speed: 0.2",
+     "Transpose", "Open Official", "Backing track", "Check out the tab", "Tuning: Eb Ab Db Gb Bb EbKey: GCapo: ", "3rd fret", ""]
+    + GIG_SHEET + ["X", "", "Print", "Create correction", "Report bad tab", "Last update: Aug 7, 2026", "Rating", "4.8",
+                   "6,730 rates", "Please, rate this tab", "Close ad", "Chords", "Guitar", "G", "C", "D", "Em",
+                   "Great tab, really easy to follow and sounds just like the record", "Reply", "discover", "About UG", "© 2026"])
+
 CONTRAST_JS = r"""() => {
   const parse = c => { const m = c.match(/rgba?\(([^)]+)\)/); if (!m) return null; const p = m[1].split(',').map(x => parseFloat(x)); return { r: p[0], g: p[1], b: p[2], a: p.length > 3 ? p[3] : 1 }; };
   const lum = c => { const f = v => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }; return 0.2126 * f(c.r) + 0.7152 * f(c.g) + 0.0722 * f(c.b); };
@@ -436,6 +484,36 @@ def journeys():
         page.wait_for_url(long_url)
         rec("KEY-CAPO", "Capo 3" in page.locator(".chord-info").inner_text(), "the page's “Capo: 3rd fret” is still picked up")
         rec("CHORDS", page.locator(".chord").first.inner_text() == "G" and page.locator("pre.tabnotes").count() == 1, "chords and tab from the whole page shown")
+        # Both page layouts (phone and tablet) of a chords site: nothing he needs may be lost.
+        want = [l.strip() for l in GIG_SHEET if l.strip() and not l.startswith("Key:")]
+        for label, pagetext, capo in (("phone layout", PHONE_PAGE, 0), ("tablet layout", TABLET_PAGE, 3)):
+            page.goto(long_url.replace("#/song/", "#/chords/"))
+            page.locator("#pc").wait_for()
+            page.evaluate("t => navigator.clipboard.writeText(t)", pagetext)
+            page.click("button:has-text('Paste')")
+            expect(page.locator(".form-msg")).to_contain_text("Found the chords")
+            got = {l.strip() for l in page.input_value("#pc").split("\n")}
+            lost = [w for w in want if w not in got and not w.startswith("(Guitar tuning")]
+            junk = [j for j in ("PLAY", "VIEW IN APP", "PDF", "Report Bad Tab", "Great tab", "Print", "3rd fret", "Last update", "Close ad") if j in got]
+            rec("CHORDS", not lost and not junk, f"{label}: every chord, sung line, heading, riff and note kept; website text left out"
+                + (f" — lost {lost}" if lost else "") + (f" — junk {junk}" if junk else ""))
+            page.click("button:has-text('Save the chords')")
+            page.wait_for_url(long_url)
+            info = page.locator(".chord-info").inner_text()
+            rec("KEY-CAPO", "Eb Ab Db Gb Bb Eb" in info and "half a step down" in info and ("Capo 3" in info if capo else "No capo" in info),
+                f"{label}: tuning (half a step down) and capo picked up: {info}")
+            body = page.locator(".song-body").inner_text()
+            rec("CHORDS", all(x in body for x in ("Spoken softly at the start", "Paper boats and painted windows", "Carry on home", "Strum: D DU UDU")),
+                f"{label}: opening line, verse without chords, ending and strumming note all shown")
+            names = page.locator(".chord, .chord-inline").all_inner_texts()
+            rec("CHORDS", all(x in names for x in ("(Em)", "Gm(maj7)", "Asus4(2)", "Cadd9")) and page.locator("pre.tabnotes").count() >= 1,
+                f"{label}: unusual chords ((Em), Gm(maj7), Asus4(2)) shown as chords and the Eb-tuned riff as tab")
+        page.click('[data-act="chords"]')
+        page.click(".modal >> text=Change the chords for standard tuning")
+        page.click(".modal >> text=Done")
+        names = page.locator(".chord").all_inner_texts()
+        rec("KEY-CAPO", "Standard tuning" in page.locator(".chord-info").inner_text() and names[:2] == ["F#", "B"],
+            f"standard-tuning option moves the chords down a half step (G→F#, C→B): {names[:3]}")
         # Coming back from the website with the chords already copied fills them in by itself.
         page.goto(long_url.replace("#/song/", "#/chords/"))
         page.locator("#pc").wait_for()

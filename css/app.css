@@ -379,6 +379,8 @@ body.has-toolbar .toast, body.has-done-bar .toast { bottom: calc(env(safe-area-i
 .diagram .dot { fill: var(--ink); }
 .diagram .open { fill: none; stroke: var(--ink); stroke-width: 2; }
 .diagram .mark, .diagram .fret-no, .diagram .string-name { fill: var(--ink); font: 700 15px var(--font); }
+.shape .near { margin: 0 0 4px; font-size: 16px; color: var(--muted); font-weight: 700; }
+pre.counts { font-family: ui-monospace, "Roboto Mono", "Droid Sans Mono", "Courier New", monospace; font-size: .8em; margin: .1em 0; white-space: pre-wrap; color: var(--muted); }
 .no-shape { display: block; width: 104px; line-height: 130px; font-size: 40px; color: var(--muted); }
 .chord-inline { color: var(--chord); font-weight: 700; }
 .chordline-row { display: flex; flex-wrap: wrap; gap: .4em; align-items: baseline; margin: .2em 0; }

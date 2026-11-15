@@ -10,6 +10,7 @@ const TUNING = [4, 9, 2, 7, 11, 4]; // E A D G B E
 const KINDS = {
   "": [0, 4, 7], m: [0, 3, 7], 7: [0, 4, 7, 10], m7: [0, 3, 7, 10], maj7: [0, 4, 7, 11], sus4: [0, 5, 7], sus2: [0, 2, 7],
   dim: [0, 3, 6], aug: [0, 4, 8], 6: [0, 4, 7, 9], add9: [0, 2, 4, 7], 9: [0, 2, 4, 7, 10], 5: [0, 7], m7b5: [0, 3, 6, 10],
+  "m(maj7)": [0, 3, 7, 11],
 };
 const problems = [];
 let checked = 0;
@@ -35,6 +36,12 @@ for (const r of ROOTS) {
     if (fretted.length && Math.max(...fretted) - Math.min(...fretted) > 4) problems.push(`${name}: stretch too wide`);
     if (f.filter(x => x != null).length < 3) problems.push(`${name}: fewer than 3 strings`);
   }
+}
+// Fancy chords get a simpler shape, and the app says so (it never claims a wrong shape is exact).
+for (const [name, exact] of [["G", true], ["Am7", true], ["Gm(maj7)", true], ["C6/9", false], ["E7#9", false], ["A13", false], ["Asus4(2)", false]]) {
+  checked++;
+  const s = guitarShape(name);
+  if (!s || s.exact !== exact) problems.push(`${name}: shape should be marked ${exact ? "exact" : "simpler stand-in"}`);
 }
 // Slash chords: the lowest note played should be the bass note.
 for (const name of ["G/B", "C/G", "D/F#", "C/E", "F/C", "Am/G", "G/F#", "D/A", "A/E", "E/G#"]) {

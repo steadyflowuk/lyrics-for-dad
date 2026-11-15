@@ -39,7 +39,7 @@ export function noteName(n, flats) {
 }
 
 // Keys that are normally written with flats.
-const FLAT_MAJOR = new Set([5, 10, 3, 8, 1, 6]);   // F Bb Eb Ab Db Gb
+const FLAT_MAJOR = new Set([5, 10, 3, 8, 1]);      // F Bb Eb Ab Db (F# rather than Gb: more usual on guitar)
 const FLAT_MINOR = new Set([2, 7, 0, 5, 10, 3]);   // Dm Gm Cm Fm Bbm Ebm
 export function prefersFlats(keyChord) {
   const c = parseChord(keyChord);
@@ -72,6 +72,7 @@ export function bassNote(name, shift = 0, flats = false) {
 function chordType(q) {
   q = q.replace(/[()]/g, "");
   if (q === "" || q === "maj" || q === "M") return "maj";
+  if (/^(m|min|mi|-)(maj7|M7|Δ7?)$/.test(q)) return "mmaj7";
   if (/^(maj7|M7|Δ7?|maj9|M9)/.test(q)) return "maj7";
   if (/^(m7b5|ø|min7b5|-7b5)/.test(q)) return "m7b5";
   if (/^(dim|°|o)/.test(q)) return "dim";
@@ -118,39 +119,53 @@ const SLASH = {
 };
 // Moveable shapes: root on the low E string ("E shape") or on the A string ("A shape").
 const E_SHAPE = {
-  maj: [0, 2, 2, 1, 0, 0], m: [0, 2, 2, 0, 0, 0], 7: [0, 2, 0, 1, 0, 0], m7: [0, 2, 0, 0, 0, 0],
+  maj: [0, 2, 2, 1, 0, 0], m: [0, 2, 2, 0, 0, 0], 7: [0, 2, 0, 1, 0, 0], m7: [0, 2, 0, 0, 0, 0], mmaj7: [0, 2, 1, 0, 0, 0],
   maj7: [0, _, 1, 1, 0, _], sus4: [0, 2, 2, 2, 0, 0], 5: [0, 2, 2, _, _, _],
 };
 const A_SHAPE = {
   maj: [_, 0, 2, 2, 2, 0], m: [_, 0, 2, 2, 1, 0], 7: [_, 0, 2, 0, 2, 0], m7: [_, 0, 2, 0, 1, 0],
-  maj7: [_, 0, 2, 1, 2, 0], sus2: [_, 0, 2, 2, 0, 0], sus4: [_, 0, 2, 2, 3, 0], 6: [_, 0, 2, 2, 2, 2],
+  maj7: [_, 0, 2, 1, 2, 0], mmaj7: [_, 0, 2, 1, 1, 0], sus2: [_, 0, 2, 2, 0, 0], sus4: [_, 0, 2, 2, 3, 0], 6: [_, 0, 2, 2, 2, 2],
   add9: [_, 0, 2, 4, 2, 0], 9: [_, 0, -1, 0, 0, 0], dim: [_, 0, 1, 2, 1, _], m7b5: [_, 0, 1, 0, 1, _],
   aug: [_, 0, 3, 2, 2, _], 5: [_, 0, 2, 2, _, _],
 };
-const FALLBACK = { add9: "maj", 6: "maj", 9: "7", dim: "m", m7b5: "m", aug: "maj", sus2: "maj", sus4: "maj" };
+const FALLBACK = { add9: "maj", 6: "maj", 9: "7", dim: "m", m7b5: "m", aug: "maj", sus2: "maj", sus4: "maj", mmaj7: "m" };
+// Chord types the shapes play exactly; anything fancier (6/9, 7#9, 13...) gets the nearest simpler shape.
+const EXACT = /^(|maj|M|m|min|mi|-|7|m7|min7|-7|maj7|M7|Δ7?|sus4?|sus2|7sus4|dim|°|o|aug|\+|6|add9|add2|2|9|5|m7b5|ø|min7b5|-7b5|m\(?maj7\)?|mM7)$/;
 
 export function guitarShape(name) {
+  const shape = guitarShapeOf(name);
+  if (!shape) return null;
+  const c = parseChord(name);
+  const q = c.quality.replace(/[()]/g, "");
+  // Say when the shape is a simpler stand-in, and which chord it really is.
+  shape.exact = EXACT.test(q) && shape.type === chordType(c.quality);
+  shape.nearest = SHARPS_OR_FLATS(c, name) + ({ maj: "", m: "m" }[shape.type] ?? shape.type);
+  return shape;
+}
+const SHARPS_OR_FLATS = (c, name) => noteName(c.root, /^[A-G](b|♭)/.test(unwrap(name)[1]));
+
+function guitarShapeOf(name) {
   const c = parseChord(name);
   if (!c) return null;
   const type = chordType(c.quality);
   const rootName = SHARPS[c.root];
   if (c.bass != null) {
     const slash = SLASH[rootName + (type === "m" ? "m" : type === "maj" ? "" : "?") + "/" + SHARPS[c.bass]];
-    if (slash) return { frets: slash, barre: null };
+    if (slash) return { frets: slash, barre: null, type };
   }
   const f = (c.root - 4 + 12) % 12;  // fret of the root on the low E string
   const a = (c.root - 9 + 12) % 12;  // ... and on the A string
   // The exact chord if there's a shape for it (open first, then barre); otherwise the nearest simpler chord.
   for (let t = type; t; t = FALLBACK[t]) {
     const open = OPEN[rootName + ":" + t];
-    if (open) return { frets: open, barre: null };
+    if (open) return { frets: open, barre: null, type: t };
     const opts = [];
     if (E_SHAPE[t]) opts.push({ base: f, shape: E_SHAPE[t] });
     if (A_SHAPE[t]) opts.push({ base: a, shape: A_SHAPE[t] });
     if (!opts.length) continue;
     opts.sort((x, y) => x.base - y.base);
     const { base, shape } = opts[0];
-    return { frets: shape.map(o => (o == null ? null : o + base)), barre: base || null };
+    return { frets: shape.map(o => (o == null ? null : o + base)), barre: base || null, type: t };
   }
   return null;
 }
