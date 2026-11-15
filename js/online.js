@@ -45,9 +45,28 @@ async function searchLrclib(q) {
     if (seen.has(k)) continue;
     seen.add(k);
     out.push({ title, artist, album: String(r.albumName || ""), lyrics, source: "LRCLIB" });
-    if (out.length >= MAX_RESULTS) break;
   }
-  return out;
+  return rank(out, q).slice(0, MAX_RESULTS);
+}
+
+// Put the most likely song first: the title and singer he typed, and the original over covers.
+const words = s => String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "")
+  .replace(/['’`]/g, "").replace(/[^a-z0-9]+/g, " ").trim().split(" ").filter(Boolean);
+const EXTRAS = /\b(karaoke|cover|tribute|instrumental|remix|live|acoustic|version|made famous|in the style)\b/i;
+
+export function rank(list, q) {
+  const qw = new Set(words(q));
+  const score = r => {
+    const tw = words(r.title.replace(/\(.*?\)|\[.*?\]/g, ""));
+    const aw = words(r.artist);
+    let s = 0;
+    if (tw.length && tw.every(w => qw.has(w))) s += 4;
+    if (aw.length && aw.every(w => qw.has(w))) s += 3;
+    for (const w of qw) if (tw.includes(w) || aw.includes(w)) s += 1;
+    if (EXTRAS.test(r.title + " " + r.artist + " " + (r.album || "")) && !EXTRAS.test(q)) s -= 3;
+    return s;
+  };
+  return list.map((r, i) => ({ r, i, s: score(r) })).sort((a, b) => b.s - a.s || a.i - b.i).map(x => x.r);
 }
 
 async function searchOvh(q) {
@@ -63,9 +82,8 @@ async function searchOvh(q) {
     if (seen.has(k)) continue;
     seen.add(k);
     out.push({ title, artist, album: String((r.album && r.album.title) || ""), lyrics: null, source: "lyrics.ovh" });
-    if (out.length >= MAX_RESULTS) break;
   }
-  return out;
+  return rank(out, q).slice(0, MAX_RESULTS);
 }
 
 // lyrics.ovh only gives the words once a particular song is chosen.

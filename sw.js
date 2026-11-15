@@ -1,7 +1,7 @@
 // Offline support: the app itself is kept on the tablet so saved songs open without the internet.
 // Bump VERSION whenever an app file changes so the tablet picks up the update.
 // Lyrics searches (lrclib.net, lyrics.ovh) are never cached here.
-const VERSION = "2026-11-15.1";
+const VERSION = "2026-11-15.2";
 const CACHE = `my-songs-${VERSION}`;
 const FILES = [
   "./",
