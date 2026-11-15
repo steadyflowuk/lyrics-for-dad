@@ -133,6 +133,62 @@ export function groupLines(lines) {
 // comments fall away). Only used when there's plenty of page text around the sheet, so a
 // sheet pasted on its own is left exactly as it is.
 export function extractSheet(text) {
+  const found = findSheet(text);
+  const tidy = tidySheet(found.text);
+  return { text: tidy.text, removed: found.removed + tidy.removed };
+}
+
+// A chord-shape list line: "G (320033) or (355433)", "Am  577555", "F#m - 244222", "C: x 3 2 0 1 0".
+const FINGERING = /^\s*\(?[A-G][#b]?[^\s()]{0,10}\)?\s*[-:=]?\s*(?:\(?\s*(?:[xX\d]{6}|(?:[xX\d]{1,2}[\s.-]){5}[xX\d]{1,2})\s*\)?\s*(?:or|,|\/)?\s*)+$/;
+// Divider lines made only of dashes, equals signs, stars...
+const DIVIDER = /^\s*[-=_*~#+.•·]{4,}\s*$/;
+// The tab writer's own notes: credits, websites, album, "easier to play", "rate this"...
+const PROSE = /(https?:\/\/|www\.|\.(com|net|org|tk|co\.uk)\b|transcribed|tabbed by|chords by|submitted by|written by|from (their|the) (album|record|cd)|\balbum\b|visit (my|our)|website|e-?mail|enjoy|please rate|rate (it|this|me)|comments?\b|corrections?|any questions|let me know|thanks? (for|to|you)|hope (you|this)|this is (my|transcribed|a |an |how)|may not be in|right key|easier to play|i think it|if you (want|like|have)|feel free|copyright|lyrics by|music by|^\s*chords?( used)?\s*:?\s*$|^\s*(standard|normal) tuning)/i;
+
+// What he needs from a chord sheet is the song: headings, chords, words, riffs and playing notes.
+// Leave out the writer's introduction and credits, chord-shape lists (the app draws its own),
+// divider lines and "(No lyrics)" placeholders. Capo, tuning and key are read before anything goes.
+export function isSheetJunk(line) {
+  return FINGERING.test(line) || DIVIDER.test(line) || PROSE.test(line) || /^\s*\(?no lyrics\)?\s*$/i.test(line);
+}
+
+export function tidySheet(text) {
+  const lines = String(text || "").replace(/\r\n?/g, "\n").split("\n");
+  const isAnchor = l => !FINGERING.test(l) && (TAB_LINE.test(l) || !!sectionLabel(l) || /^\s*\[[^\]\n]{1,30}\]\s*$/.test(l) ||
+    isChordLine(l) || hasInlineChords(l) || (() => { const lab = LABELLED_CHORDS.exec(l); return !!(lab && isChordLine(lab[2])); })());
+  const first = lines.findIndex(isAnchor);
+  if (first < 0) return { text, removed: 0 };
+  let last = lines.length - 1;
+  for (let i = lines.length - 1; i >= 0; i--) if (isAnchor(lines[i])) { last = i; break; }
+
+  // Before the song starts: keep only sung lines right above it (no gap), never the writer's notes.
+  const keepTop = [];
+  for (let i = first - 1; i >= 0 && lines[i].trim(); i--) {
+    const l = lines[i];
+    if (PROSE.test(l) || FINGERING.test(l) || DIVIDER.test(l) || /:\s*$/.test(l) || l.trim().length > 70) break;
+    keepTop.unshift(l);
+  }
+  // After the last chord: the closing words, but not a sign-off like "Hope you enjoy it, rate it!".
+  let end = lines.length - 1;
+  for (let i = last + 1; i < lines.length; i++) if (PROSE.test(lines[i])) { end = i - 1; break; }
+
+  const body = lines.slice(first, end + 1).filter(l =>
+    !FINGERING.test(l) && !DIVIDER.test(l) && !/^\s*\(?no lyrics\)?\s*$/i.test(l) && !/^\s*chords?( used)?\s*:\s*$/i.test(l));
+  // Squash runs of blank lines left behind.
+  const out = [];
+  for (const l of keepTop.concat(body)) { if (!l.trim() && (!out.length || !out[out.length - 1].trim())) continue; out.push(l); }
+  while (out.length && !out[out.length - 1].trim()) out.pop();
+
+  const d = sheetDetails(lines.slice(0, first).join("\n"));
+  const head = [];
+  if (d.capo) head.push(`Capo: ${d.capo}`);
+  if (d.tuning) head.push(`Tuning: ${d.tuning}`);
+  if (d.key) head.push(`Key: ${d.key}`);
+  const removed = lines.filter(l => l.trim()).length - out.filter(l => l.trim()).length;
+  return { text: head.concat(out).join("\n"), removed: Math.max(0, removed) };
+}
+
+function findSheet(text) {
   const lines = String(text || "").replace(/\r\n?/g, "\n").split("\n");
   const single = l => /^\s*[A-Z]\s*$/.test(l);
   const kinds = lines.map(l => {

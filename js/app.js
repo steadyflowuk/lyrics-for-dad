@@ -4,7 +4,7 @@ import * as db from "./db.js";
 import { findSongs, fetchLyricsFor, LookupError } from "./online.js";
 import { transposeChord, bassNote, prefersFlats, guitarDiagram, bassDiagram, guitarShape, cleanChordSheet, tuningShift, tuningName } from "./chords.js";
 
-const VERSION = "2.0.2";
+const VERSION = "2.0.3";
 const main = document.getElementById("main");
 const toastEl = document.getElementById("toast");
 
@@ -833,7 +833,7 @@ async function showPasteChords(id, stale) {
     if (!songHasChords(text)) { msg.className = "form-msg"; msg.textContent = "No chords were found in what was copied. Make sure it's a page with chords (like G, Am or D7 above the words)."; return false; }
     msg.className = "form-msg good";
     msg.textContent = removed
-      ? `✓ Found the chords (and left out ${removed} lines of website text). Check them below, then press “Save the chords”.`
+      ? `✓ Found the song: just the chords and words are kept (${removed} other lines left out — website text, notes and credits). Check below, then press “Save the chords”.`
       : "✓ Chords pasted. Press “Save the chords”.";
     return true;
   }

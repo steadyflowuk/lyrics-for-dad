@@ -186,10 +186,26 @@ WHOLE_PAGE = "\n".join(
     + ["discover", "About UG", "Site Rules", "Terms of Service", "Privacy Policy", "© 2026", "All rights reserved", "GET SPECIAL OFFER"])
 
 # A made-up sheet with everything a player needs, in the awkward places real sheets put it.
-GIG_SHEET = [
+# The sheet's own introduction: credits, website, notes, a chord-shape list, dividers. None of it is wanted.
+SHEET_INTRO = [
+    "Test Band - Long Song from their album Made Up",
+    "Transcribed by someone (XYZ)",
+    "Visit my website at http://www.example.tk for more tabs, chords,",
+    "and more!!!",
+    "This is transcribed to be easier to play, so it may not be in",
+    "the right key.",
     "(Guitar tuning: Eb, Ab, Db, Gb, Bb, Eb - half a step down)",
     "Strum: D DU UDU",
+    "CHORDS USED:",
     "",
+    "G (320033) or (355433)",
+    "D  (xx0232)",
+    "Am7   x02010",
+    "F#m - 244222",
+    "-----------------------------",
+    "",
+]
+GIG_SHEET = SHEET_INTRO + [
     "[Intro]",
     "e|-----0-----2-----3-----|",
     "Eb|----1-----3-----0------|",
@@ -214,10 +230,16 @@ GIG_SHEET = [
     "Paper boats and painted windows",
     "Old guitar beside the door",
     "",
+    "G   D   C  D",
+    "(No lyrics)",
+    "=========",
+    "",
     "[Outro]",
     "G  C  G  D  N.C.",
     "Carry on, carry on",
     "Carry on home",
+    "-----------------------------",
+    "That's it, hope you enjoy it! Please rate",
 ]
 PHONE_PAGE = "\n".join(
     ["Rating: ★ 4.8 / 5 (6,730)", "Difficulty: Beginner", "Tuning: Eb Ab Db Gb Bb Eb", "Key: D", "Author: someone",
@@ -485,17 +507,18 @@ def journeys():
         rec("KEY-CAPO", "Capo 3" in page.locator(".chord-info").inner_text(), "the page's “Capo: 3rd fret” is still picked up")
         rec("CHORDS", page.locator(".chord").first.inner_text() == "G" and page.locator("pre.tabnotes").count() == 1, "chords and tab from the whole page shown")
         # Both page layouts (phone and tablet) of a chords site: nothing he needs may be lost.
-        want = [l.strip() for l in GIG_SHEET if l.strip() and not l.startswith("Key:")]
+        unwanted = [l.strip() for l in SHEET_INTRO if l.strip()] + ["(No lyrics)", "=========", "-----------------------------", "That's it, hope you enjoy it! Please rate"]
+        want = [l.strip() for l in GIG_SHEET if l.strip() and not l.startswith("Key:") and l.strip() not in unwanted]
         for label, pagetext, capo in (("phone layout", PHONE_PAGE, 0), ("tablet layout", TABLET_PAGE, 3)):
             page.goto(long_url.replace("#/song/", "#/chords/"))
             page.locator("#pc").wait_for()
             page.evaluate("t => navigator.clipboard.writeText(t)", pagetext)
             page.click("button:has-text('Paste')")
-            expect(page.locator(".form-msg")).to_contain_text("Found the chords")
+            expect(page.locator(".form-msg")).to_contain_text("Found the song")
             got = {l.strip() for l in page.input_value("#pc").split("\n")}
-            lost = [w for w in want if w not in got and not w.startswith("(Guitar tuning")]
-            junk = [j for j in ("PLAY", "VIEW IN APP", "PDF", "Report Bad Tab", "Great tab", "Print", "3rd fret", "Last update", "Close ad") if j in got]
-            rec("CHORDS", not lost and not junk, f"{label}: every chord, sung line, heading, riff and note kept; website text left out"
+            lost = [w for w in want if w not in got]
+            junk = [j for j in ("PLAY", "VIEW IN APP", "PDF", "Report Bad Tab", "Great tab", "Print", "3rd fret", "Last update", "Close ad") + tuple(unwanted) if j in got]
+            rec("CHORDS", not lost and not junk, f"{label}: every chord, sung line, heading and riff kept; website text, the writer's notes, chord-shape lists and dividers left out"
                 + (f" — lost {lost}" if lost else "") + (f" — junk {junk}" if junk else ""))
             page.click("button:has-text('Save the chords')")
             page.wait_for_url(long_url)
@@ -503,8 +526,8 @@ def journeys():
             rec("KEY-CAPO", "Eb Ab Db Gb Bb Eb" in info and "half a step down" in info and ("Capo 3" in info if capo else "No capo" in info),
                 f"{label}: tuning (half a step down) and capo picked up: {info}")
             body = page.locator(".song-body").inner_text()
-            rec("CHORDS", all(x in body for x in ("Spoken softly at the start", "Paper boats and painted windows", "Carry on home", "Strum: D DU UDU")),
-                f"{label}: opening line, verse without chords, ending and strumming note all shown")
+            rec("CHORDS", all(x in body for x in ("Spoken softly at the start", "Paper boats and painted windows", "Carry on home")) and "Transcribed" not in body and "(No lyrics)" not in body,
+                f"{label}: opening line, verse without chords and ending shown; no credits or placeholders")
             names = page.locator(".chord, .chord-inline").all_inner_texts()
             rec("CHORDS", all(x in names for x in ("(Em)", "Gm(maj7)", "Asus4(2)", "Cadd9")) and page.locator("pre.tabnotes").count() >= 1,
                 f"{label}: unusual chords ((Em), Gm(maj7), Asus4(2)) shown as chords and the Eb-tuned riff as tab")
@@ -518,7 +541,7 @@ def journeys():
         page.goto(long_url.replace("#/song/", "#/chords/"))
         page.locator("#pc").wait_for()
         page.evaluate("document.dispatchEvent(new Event('visibilitychange'))")
-        expect(page.locator(".form-msg")).to_contain_text("Found the chords")
+        expect(page.locator(".form-msg")).to_contain_text("Found the song")
         rec("CHORDS", "Morning light" in page.input_value("#pc"), "returning from the chords website fills the chords in by itself")
         page.goto(song_url.replace("#/song/", "#/chords/"))
         page.fill("#pc", CHORD_SHEET)

@@ -4,7 +4,7 @@
 //   p.run()
 // It compares what My Songs would keep with the page's own chord sheet (its <pre> block) and reports
 // what was lost or wrongly kept. Sung lines are never printed, only counted, so nothing is copied.
-import { extractSheet, cleanLyrics, isChordLine, isChord, sectionLabel } from "../js/template.js";
+import { extractSheet, cleanLyrics, isChordLine, isChord, sectionLabel, isSheetJunk, hasInlineChords } from "../js/template.js";
 import * as Ch from "../js/chords.js";
 const { cleanChordSheet, TAB_LINE } = Ch;
 
@@ -26,7 +26,12 @@ export function run(title = document.title.replace(/ (chords|tab).*$/i, "")) {
   const kept = cleanLyrics(cleanChordSheet(r.text, title).text).split("\n").filter(l => l.trim());
   const want = cleanLyrics(pre.innerText).split("\n").filter(l => l.trim());
   const keptSet = new Set(kept.map(l => l.trim())), wantSet = new Set(want.map(l => l.trim()));
-  const missing = want.map((l, i) => [l, i]).filter(([l]) => !keptSet.has(l.trim()));
+  // The song starts at the first heading, chord line, tab line or inline chord.
+  const anchor = l => !!sectionLabel(l) || /^\s*\[[^\]]{1,30}\]\s*$/.test(l) || isChordLine(l) || TAB_LINE.test(l) || hasInlineChords(l);
+  const firstAnchor = want.findIndex(anchor);
+  const missingAll = want.map((l, i) => [l, i]).filter(([l]) => !keptSet.has(l.trim()));
+  const junk = ([l, i]) => isSheetJunk(l) || (i < firstAnchor);
+  const missing = missingAll.filter(m => !junk(m));
   const extra = kept.filter(l => !wantSet.has(l.trim()));
   // Chord names the website marks as chords that My Songs doesn't recognise.
   const marked = [...pre.querySelectorAll("span")].map(s => s.textContent.trim()).filter(t => /^[A-H][^\s]{0,12}$/.test(t));
@@ -43,6 +48,9 @@ export function run(title = document.title.replace(/ (chords|tab).*$/i, "")) {
     // Lines dropped on purpose (song name, capo/tuning/key, which the app shows anyway) are listed apart.
     missing: missing.filter(([l]) => !onPurpose(l, title)).map(([l, i]) => `${i}/${want.length}: ${show(l)}`).slice(0, 12),
     droppedOnPurpose: missing.filter(([l]) => onPurpose(l, title)).map(([l]) => show(l)).slice(0, 6),
+    // Writer's notes, chord-shape lists, dividers and lines before the song starts (left out on purpose).
+    leftOut: missingAll.filter(junk).map(([l, i]) => (isSheetJunk(l) && !/[a-z]{3,}.*[a-z]{3,}.*[a-z]{3,}/.test(l)) || /https?:|transcrib|website|album|tabbed|easier|right key|chords used/i.test(l)
+      ? l.trim().slice(0, 40) : `«line before the song starts, ${l.trim().length} chars»`).slice(0, 14),
     extra: extra.map(l => show(l)).slice(0, 8),
     unknownChords: unknown.slice(0, 12),
     chordLinesNotRecognised: notChord.slice(0, 8),
