@@ -250,7 +250,7 @@ export const TAB_LINE = /^\s*(?:[A-Ga-g][#b]?\s*)?[|:][-\d|hpbrsvtx\/\\~().^*=<>
 export function sheetDetails(text) {
   const t = String(text || "");
   const out = { capo: 0, tuning: "", key: "" };
-  const capo = /capo\b[^\d\n]{0,14}?(\d{1,2})(?!\d)/i.exec(t);
+  const capo = /capo\b[^\d]{0,14}?(\d{1,2})(?!\d)/i.exec(t);   // the number may be on the next line
   if (capo && !/no capo/i.test(t.slice(Math.max(0, capo.index - 3), capo.index + 12))) out.capo = Math.min(11, parseInt(capo[1], 10));
   const tun = /tuning:\s*((?:[A-Ga-g][#b]?[ ,]*){4,7}|[A-Za-z][A-Za-z ]{2,30}?)(?=key:|capo:|author:|difficulty:|\n|$)/i.exec(t);
   if (tun) {

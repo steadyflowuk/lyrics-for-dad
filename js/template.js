@@ -213,7 +213,7 @@ function furniture(line) {
   if (/^(last update|last edit|rating|speed|official version|ver \d)\b/.test(t)) return "H";
   if (/\b(views|saves|rates|comments|contributor)\b/.test(t) && /\d/.test(t)) return "H";
   if (/^\d+ ?bpm$/.test(t)) return "H";
-  if (/^(author|difficulty|tuning|key|capo)\b/.test(t)) return "F";
+  if (/^(author|difficulty|tuning|key|capo)\b/.test(t) || /^\d{1,2}(st|nd|rd|th) fret$/.test(t)) return "F";
   return "";
 }
 
