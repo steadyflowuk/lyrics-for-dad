@@ -11,6 +11,11 @@ const { cleanChordSheet, TAB_LINE } = Ch;
 const lyricLike = l => /[a-z]{3,}/.test(l) && !isChordLine(l) && !TAB_LINE.test(l) && !sectionLabel(l);
 const show = l => (lyricLike(l) ? `«sung line, ${l.trim().length} chars»` : l.trim().slice(0, 60));
 
+const simple = x => x.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+function onPurpose(l, title) {
+  return /^\s*(capo|no capo|tuning|key|difficulty|author|strumming|tabbed by|chords by|bpm|tempo)\b/i.test(l) || (title && simple(l).startsWith(simple(title)));
+}
+
 export function run(title = document.title.replace(/ (chords|tab).*$/i, "")) {
   const pres = [...document.querySelectorAll("pre")].sort((a, b) => b.innerText.length - a.innerText.length);
   if (!pres.length) return { error: "no chord sheet on this page" };
@@ -35,7 +40,9 @@ export function run(title = document.title.replace(/ (chords|tab).*$/i, "")) {
   return {
     page: location.pathname.split("/").slice(-1)[0],
     sheetLines: want.length, kept: kept.length, removed: r.removed,
-    missing: missing.map(([l, i]) => `${i}/${want.length}: ${show(l)}`).slice(0, 12),
+    // Lines dropped on purpose (song name, capo/tuning/key, which the app shows anyway) are listed apart.
+    missing: missing.filter(([l]) => !onPurpose(l, title)).map(([l, i]) => `${i}/${want.length}: ${show(l)}`).slice(0, 12),
+    droppedOnPurpose: missing.filter(([l]) => onPurpose(l, title)).map(([l]) => show(l)).slice(0, 6),
     extra: extra.map(l => show(l)).slice(0, 8),
     unknownChords: unknown.slice(0, 12),
     chordLinesNotRecognised: notChord.slice(0, 8),

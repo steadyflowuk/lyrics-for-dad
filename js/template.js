@@ -155,13 +155,14 @@ export function extractSheet(text) {
     }
   });
   // Website buttons and labels next to the sheet ("PLAY" under each chord in the chord list, etc.)
-  kinds.forEach((k, i) => { if (k !== "_" && isFurniture(lines[i])) kinds[i] = "F"; });
+  // "H" = a button or counter; "F" = a detail line (Key:, Tuning:, Author:) that sheets also contain.
+  kinds.forEach((k, i) => { if (k !== "_") { const f = furniture(lines[i]); if (f) kinds[i] = f; } });
   const weight = (k, i) => {
     if (k === "C") return 2;
     if (k === "I") return 3;
     if (k === "S") return 2;
     if (k === "T") return 1;
-    if (k === "J" || k === "F") return -2;
+    if (k === "J" || k === "F" || k === "H") return -2;
     if (k === "w") return i > 0 && kinds[i - 1] === "C" ? 1 : -1;   // words under a chord line belong
     return 0;
   };
@@ -175,7 +176,16 @@ export function extractSheet(text) {
   if (a < 0 || best < 6) return { text, removed: 0 };
   // Then widen it to the whole sheet: verses without chords, a closing riff, a note at the top...
   // everything up to the website's own buttons and labels on either side.
-  const stop = i => kinds[i] === "F" || kinds[i] === "J";
+  // Stop at the website's own controls: an A–Z list, or two or more furniture lines together
+  // including a real button. A lone "Key: A" or a sung line like "Listen" doesn't stop it.
+  const isF = i => i >= 0 && i < lines.length && ["F", "H", "J"].includes(kinds[i]);
+  const run = (i, d) => { const out = []; for (let j = i; j >= 0 && j < lines.length; j += d) { if (!lines[j].trim()) continue; if (!isF(j)) break; out.push(j); } return out; };
+  const stop = i => {
+    if (!isF(i)) return false;
+    if (kinds[i] === "J") return true;
+    const group = run(i, -1).concat(run(i, 1).slice(1));
+    return group.length >= 2 && group.some(j => kinds[j] === "H" || kinds[j] === "J");
+  };
   while (a > 0 && !stop(a - 1) && a - 1 >= 0) a--;
   while (b < lines.length - 1 && !stop(b + 1)) b++;
   while (a < b && !lines[a].trim()) a++;
@@ -196,14 +206,15 @@ const FURNITURE = new Set(("print|create correction|report bad tab|rating|please
   "view in app|transpose|listen|pdf|download pdf|simplify|autoscroll|open official|backing track|check out the tab|save|edit|" +
   "add to favorites|strumming|play|chords|guitar|ukulele|piano|versions|official|share|reply|install|font|show all|" +
   "related tabs|comments|top tabs|more versions|related songs|&").split("|"));
-function isFurniture(line) {
+function furniture(line) {
   const t = line.trim().toLowerCase().replace(/\s+/g, " ");
-  if (FURNITURE.has(t)) return true;
-  if (/^[\d.,&★/ ]+$/.test(t)) return true;                                   // 4.8, 6,730, 1 & 2 &
-  if (/^(last update|last edit|rating|author|difficulty|tuning|key|capo|speed|official version|ver \d)\b/.test(t)) return true;
-  if (/\b(views|saves|rates|comments|contributor)\b/.test(t) && /\d/.test(t)) return true;
-  if (/^\d+ ?bpm$/.test(t)) return true;
-  return false;
+  if (FURNITURE.has(t)) return "H";
+  if (/^[\d.,&★/]{1,8}$/.test(t)) return "H";                                   // 4.8, 6,730, 1, &
+  if (/^(last update|last edit|rating|speed|official version|ver \d)\b/.test(t)) return "H";
+  if (/\b(views|saves|rates|comments|contributor)\b/.test(t) && /\d/.test(t)) return "H";
+  if (/^\d+ ?bpm$/.test(t)) return "H";
+  if (/^(author|difficulty|tuning|key|capo)\b/.test(t)) return "F";
+  return "";
 }
 
 // Lyrics text with chords removed, used for searching and for spotting repeated choruses.
