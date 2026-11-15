@@ -82,6 +82,35 @@
   color-scheme: dark;
 }
 
+:root[data-theme="contrast"] {
+  --page: #000000;
+  --surface: #000000;
+  --surface-soft: #141414;
+  --ink: #FFFFFF;
+  --muted: #E6E6E6;
+  --line: #FFFFFF;
+  --accent-ink: #FFE14D;
+  --chord: #FFE14D;
+  --chorus-bg: #1C1C1C;
+  --focus: #6FC3FF;
+  --btn-bg: #FFFFFF;
+  --btn-ink: #000000;
+  --gold-btn: #FFE14D;
+  --gold-btn-ink: #000000;
+  --green: #7CFC9A;
+  --green-ink: #000000;
+  --danger: #FF8A80;
+  --bar: #000000;
+  --bar-ink: #FFFFFF;
+  --gold: #FFE14D;
+  --sage-deep: #FFFFFF;
+  color-scheme: dark;
+}
+:root[data-theme="contrast"] .tb { border-color: #FFFFFF; background: #000; }
+:root[data-theme="contrast"] .btn.secondary, :root[data-theme="contrast"] .btn.back, :root[data-theme="contrast"] .btn.clear { border-width: 3px; }
+:root[data-theme="contrast"] .toast { background: #000; border: 3px solid #FFE14D; }
+:root[data-bold] .song-sheet, :root[data-bold] .tile-title, :root[data-bold] body { font-weight: 700; }
+
 *, *::before, *::after { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }
 body {
@@ -120,8 +149,10 @@ h2 { font-size: 1.4rem; margin: 1em 0 .4em; }
   text-decoration: none; cursor: pointer; user-select: none;
 }
 .btn:active { transform: translateY(1px); filter: brightness(.95); }
+.btn, .tb, .tab, .choice, .tile, .result { touch-action: manipulation; }
+.btn.disabled, .btn:disabled { opacity: .4; pointer-events: none; }
 .btn.big { min-height: 72px; font-size: 1.2rem; padding: 0 28px; }
-.btn.small { min-height: 52px; font-size: .95rem; padding: 0 18px; }
+.btn.small { min-height: 52px; font-size: 1.05rem; padding: 0 18px; }
 .btn.secondary { background: var(--surface); color: var(--ink); border-color: var(--line); }
 .btn.gold { background: var(--gold-btn); border-color: var(--gold-btn); color: var(--gold-btn-ink); }
 .btn.green { background: var(--green); border-color: var(--green); color: var(--green-ink); }
@@ -185,7 +216,7 @@ h2 { font-size: 1.4rem; margin: 1em 0 .4em; }
 .result-start { color: var(--muted); font-size: 1.05rem; margin-top: 4px; font-style: italic; }
 .badge {
   align-self: flex-start; margin-top: 8px; padding: 4px 12px; border-radius: 999px;
-  background: var(--chorus-bg); color: var(--accent-ink); font-weight: 700; font-size: .95rem;
+  background: var(--chorus-bg); color: var(--accent-ink); font-weight: 700; font-size: 1rem;
 }
 .manual { margin-top: 36px; padding-top: 18px; border-top: 2px solid var(--line); }
 .manual p { margin: 0 0 10px; color: var(--muted); }
@@ -254,7 +285,7 @@ body.has-toolbar .screen { padding-bottom: calc(env(safe-area-inset-bottom) + 14
 }
 .tb.wide { flex-grow: 1.5; max-width: 210px; }
 .tb-icon { font-size: 1.7rem; font-weight: 700; line-height: 1; }
-.tb-label { font-size: .95rem; line-height: 1.1; text-align: center; }
+.tb-label { font-size: 1rem; line-height: 1.1; text-align: center; }
 .tb.on { background: var(--gold); border-color: var(--gold); color: #1A2233; }
 .tb.limit { opacity: .45; }
 .tb:active { filter: brightness(1.2); }
@@ -274,7 +305,7 @@ body.has-toolbar .screen { padding-bottom: calc(env(safe-area-inset-bottom) + 14
 
 .field.words { min-height: 420px; font-size: 1.15rem; line-height: 1.5; resize: vertical; font-family: ui-monospace, "Roboto Mono", "Droid Sans Mono", "Courier New", monospace; }
 .tip { margin: 16px 0; background: var(--surface); border: 2px solid var(--line); border-radius: 14px; padding: 12px 18px; }
-.tip summary { font-weight: 700; cursor: pointer; min-height: 44px; display: flex; align-items: center; }
+.tip summary { font-weight: 700; cursor: pointer; min-height: 52px; display: flex; align-items: center; }
 .tip pre { font-size: 1rem; background: var(--surface-soft); padding: 10px 14px; border-radius: 10px; overflow-x: auto; }
 .form-msg { color: var(--danger); font-weight: 700; min-height: 1.4em; }
 .form-buttons { display: flex; gap: 12px; flex-wrap: wrap; }
@@ -295,13 +326,15 @@ body.has-toolbar .screen { padding-bottom: calc(env(safe-area-inset-bottom) + 14
 /* ---------- Pop-ups ---------- */
 
 .toast {
-  position: fixed; left: 50%; top: calc(env(safe-area-inset-top) + 16px); z-index: 60;
-  transform: translate(-50%, -200%); visibility: hidden; transition: transform .25s ease, visibility 0s linear .25s;
+  position: fixed; left: 50%; bottom: calc(env(safe-area-inset-bottom) + 24px); z-index: 60;
+  transform: translate(-50%, 200%); visibility: hidden; transition: transform .25s ease, visibility 0s linear .25s;
   max-width: min(92vw, 640px); padding: 14px 24px; border-radius: 14px;
   background: var(--navy); color: #fff; font-size: 1.15rem; font-weight: 700; text-align: center;
   box-shadow: 0 8px 24px rgba(0,0,0,.25); pointer-events: none;
 }
 .toast.show { transform: translate(-50%, 0); visibility: visible; transition: transform .25s ease; }
+/* Above the song buttons / Done bar, so it never covers what he needs to press. */
+body.has-toolbar .toast, body.has-done-bar .toast { bottom: calc(env(safe-area-inset-bottom) + 118px); }
 :root[data-theme="dark"] .toast { background: #2A3A5C; border: 2px solid var(--gold); }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .toast { background: #2A3A5C; border: 2px solid var(--gold); } }
 
@@ -312,7 +345,7 @@ body.has-toolbar .screen { padding-bottom: calc(env(safe-area-inset-bottom) + 14
 
 @media (max-width: 520px) {
   body { font-size: 19px; }
-  .tb-label { font-size: .8rem; }
+  .tb-label { font-size: .85rem; }
   .tb { min-height: 72px; }
   .tb-icon { font-size: 1.4rem; }
 }
@@ -320,3 +353,92 @@ body.has-toolbar .screen { padding-bottom: calc(env(safe-area-inset-bottom) + 14
   .toast { transition: none; }
   .spinner { animation-duration: 3s; }
 }
+
+/* ---------- Home: tabs ---------- */
+
+.top-buttons { display: flex; gap: 8px; }
+.tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 0 0 16px; background: var(--surface-soft); border: 2px solid var(--line); border-radius: 16px; padding: 6px; }
+.tab {
+  display: flex; align-items: center; justify-content: center; min-height: 60px; border-radius: 12px;
+  font-weight: 700; font-size: 1.2rem; text-decoration: none; color: var(--ink);
+}
+.tab.on { background: var(--btn-bg); color: var(--btn-ink); }
+.recent { margin-bottom: 4px; }
+.recent .sub { margin-top: .6em; }
+
+/* ---------- Chords: info line, shapes, tab ---------- */
+
+.chord-info { font-size: max(18px, .5em); color: var(--muted); margin: -.4em 0 .6em; font-weight: 700; }
+.shapes { display: flex; gap: 12px; overflow-x: auto; padding: 4px 2px 12px; margin: 0 0 .6em; -webkit-overflow-scrolling: touch; }
+.shape { margin: 0; flex: 0 0 auto; text-align: center; background: var(--surface); border: 2px solid var(--line); border-radius: 14px; padding: 6px 6px 2px; }
+.shape figcaption { font-size: 22px; font-weight: 700; color: var(--chord); line-height: 1.2; }
+.diagram { width: 104px; height: 130px; display: block; }
+.diagram .string, .diagram .fret { stroke: var(--ink); stroke-width: 1.6; }
+.diagram .nut { fill: var(--ink); }
+.diagram .dot { fill: var(--ink); }
+.diagram .open { fill: none; stroke: var(--ink); stroke-width: 2; }
+.diagram .mark, .diagram .fret-no, .diagram .string-name { fill: var(--ink); font: 700 15px var(--font); }
+.no-shape { display: block; width: 104px; line-height: 130px; font-size: 40px; color: var(--muted); }
+.chord-inline { color: var(--chord); font-weight: 700; }
+.chordline-row { display: flex; flex-wrap: wrap; gap: .4em; align-items: baseline; margin: .2em 0; }
+.chord-label { font-size: .6em; font-weight: 700; color: var(--accent-ink); text-transform: uppercase; letter-spacing: .06em; }
+.chordline-row .chordline { margin: 0; }
+pre.tabnotes {
+  font-family: ui-monospace, "Roboto Mono", "Droid Sans Mono", "Courier New", monospace;
+  font-size: max(16px, .42em); line-height: 1.35; overflow-x: auto; margin: .3em 0;
+  background: var(--surface-soft); border-radius: 10px; padding: .4em .6em; color: var(--ink);
+}
+.hide-chords pre.tabnotes, .hide-chords .chordline-row { display: none; }
+.bass-mode .chord, .bass-mode .chord-inline { font-size: .8em; }
+
+/* ---------- Song: folder navigation ---------- */
+
+.song-top { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; }
+.folder-nav { display: flex; gap: 8px; align-items: center; }
+.folder-nav .btn { min-height: 64px; }
+.folder-pos { font-weight: 700; font-size: 1.1rem; min-width: 4.5em; text-align: center; }
+.next-song { width: 100%; white-space: normal; padding: 12px 24px; }
+
+/* ---------- Folders ---------- */
+
+.folder-actions { margin: 6px 0 16px; }
+.folder-actions .btn { flex: 1 1 220px; }
+.set-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.set-list .empty, .pick-list .empty { color: var(--muted); padding: 16px 4px; font-size: 1.15rem; }
+.set-row {
+  display: flex; align-items: center; gap: 16px; padding: 14px 18px; min-height: 84px;
+  background: var(--surface); color: var(--ink); text-decoration: none;
+  border: 2px solid var(--line); border-left: 8px solid var(--gold); border-radius: var(--radius);
+}
+.set-row.ordering { flex-wrap: wrap; }
+.set-no { font-size: 1.6rem; font-weight: 700; color: var(--accent-ink); min-width: 1.6em; text-align: center; }
+.set-text { display: flex; flex-direction: column; flex: 1 1 200px; min-width: 0; }
+.set-buttons { display: flex; gap: 8px; flex-wrap: wrap; }
+.set-buttons .btn { min-height: 56px; padding: 0 16px; }
+.pick { flex-direction: row; align-items: center; gap: 16px; }
+.pick .tick {
+  flex: 0 0 auto; width: 44px; height: 44px; border-radius: 10px; border: 3px solid var(--line);
+  display: grid; place-items: center; font-size: 1.6rem; font-weight: 700; color: var(--green-ink); background: var(--surface);
+}
+.pick.on { border-left-color: var(--green); }
+.pick.on .tick { background: var(--green); border-color: var(--green); }
+.done-bar {
+  position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(12px + env(safe-area-inset-bottom)); z-index: 30;
+  width: min(900px, calc(100% - 2 * var(--gutter))); white-space: normal; box-shadow: 0 6px 20px rgba(0,0,0,.25);
+}
+.done-bar:active { transform: translateX(-50%) translateY(1px); }
+body.has-done-bar .screen { padding-bottom: calc(env(safe-area-inset-bottom) + 120px); }
+
+/* ---------- Chords panel and other pop-ups ---------- */
+
+.modal { max-height: calc(100vh - 40px); overflow-y: auto; }
+.panel-sheet .choices { margin-bottom: 14px; }
+.panel-label { font-weight: 700; margin: 0 0 8px; }
+.choice.wide { width: 100%; margin: 4px 0 12px; }
+.stepper { display: grid; grid-template-columns: 4.5em auto 1fr auto; gap: 8px; align-items: center; margin: 0 0 12px; }
+.stepper-label { font-weight: 700; }
+.stepper-value { text-align: center; font-weight: 700; font-size: 1.15rem; }
+.stepper .btn { min-width: 110px; }
+.modal .field { margin-bottom: 14px; }
+.steps li { margin: .4em 0; }
+.help-list li { margin: .5em 0; }

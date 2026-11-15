@@ -1,3 +1,5 @@
+import { TAB_LINE } from "./chords.js";
+
 // The big-print song template: turns plain lyrics (with optional chords) into the on-screen layout.
 // All song text is untrusted (it comes from the internet or a paste), so everything is built with
 // textContent, never innerHTML.
@@ -138,9 +140,23 @@ function countChordLines(text) {
   return n;
 }
 
+// The first chord in the song (used to decide sharps or flats after a key change).
+export function firstChord(text) {
+  for (const l of String(text || "").split("\n")) {
+    INLINE_CHORD.lastIndex = 0;
+    let m;
+    while ((m = INLINE_CHORD.exec(l))) if (isChord(m[1])) return m[1];
+    const lab = LABELLED_CHORDS.exec(l);
+    const tokens = (lab ? lab[2] : l).trim().split(/\s+/);
+    if (isChordLine(lab ? lab[2] : l)) for (const t of tokens) if (isChord(t)) return t;
+  }
+  return null;
+}
+
 export function songHasChords(text) {
   const lines = String(text || "").split("\n");
-  return countChordLines(text) >= 2 || lines.some(hasInlineChords);
+  return countChordLines(text) >= 2 || lines.some(hasInlineChords) ||
+    lines.some(l => { const lab = LABELLED_CHORDS.exec(l); return lab && isChordLine(lab[2]); });
 }
 
 const norm = s => s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
@@ -180,7 +196,7 @@ function el(tag, cls, text) {
 }
 
 // One lyric line with chords written inline: "[G]Amazing [C]grace".
-function inlineChordLine(line) {
+function inlineChordLine(line, show = c => c) {
   const div = el("div", "line has-chords");
   const parts = [];
   let last = 0, m, pending = null;
@@ -196,13 +212,19 @@ function inlineChordLine(line) {
     if (!p.chord) { if (p.text) div.append(document.createTextNode(p.text)); continue; }
     // A chord that lands on a gap belongs to the next word.
     const lead = p.text.match(/^\s*/)[0];
-    if (lead && p.text.trim()) { div.append(document.createTextNode(lead)); p.text = p.text.slice(lead.length); }
+    if (lead && p.text.trim()) {
+      const prev = div.lastChild && div.lastChild.textContent;
+      if (!prev || !/\s$/.test(prev)) div.append(document.createTextNode(" "));   // one space, not two
+      p.text = p.text.slice(lead.length);
+    }
     // The chord sits over the first word only, so long lines can still wrap.
     // (The space after the word stays outside the chord box, or it would be lost.)
     const mm = p.text.match(/^(\S*)([\s\S]*)$/);
     const first = mm[1] || " ", rest = mm[2] || "";
     const seg = el("span", "seg");
-    seg.append(el("span", "chord", p.chord), el("span", "w", first));
+    const ch = el("span", "chord", show(p.chord));
+    ch.dataset.chord = p.chord;
+    seg.append(ch, el("span", "w", first));
     div.append(seg);
     if (rest) div.append(document.createTextNode(rest));
   }
@@ -225,8 +247,23 @@ export function mergeChordLine(chordLine, lyric) {
   return out;
 }
 
+const LABELLED_CHORDS = /^\s*[\[(]?\s*(intro|outro|interlude|solo|instrumental|riff|ending|bridge|verse|chorus|pre-chorus)[^:\])]{0,12}[\])]?\s*:?\s+(.+)$/i;
+
 // Build the template for a song into `root`.
-export function renderSong(root, song) {
+// `show` turns a written chord into what's displayed (changed key, capo, or the bass note).
+export function renderSong(root, song, { show = c => c } = {}) {
+  const used = [];
+  const seen = new Set();
+  const note = c => { const d = show(c); if (d && !seen.has(d)) { seen.add(d); used.push(d); } return d; };
+  const chordLineEl = line => {
+    const out = el("div", "chordline");
+    line.trim().split(/\s+/).forEach((t, k) => {
+      if (k) out.append(document.createTextNode("   "));
+      if (isChord(t)) { const c = el("span", "chord-inline", note(t)); c.dataset.chord = t; out.append(c); }
+      else out.append(document.createTextNode(t));
+    });
+    return out;
+  };
   root.textContent = "";
   const head = el("header", "song-head");
   head.append(el("h1", "song-title", song.title || "Untitled song"));
@@ -241,17 +278,33 @@ export function renderSong(root, song) {
     if (b.label) sec.append(el("p", "block-label", b.label));
     for (let i = 0; i < b.lines.length; i++) {
       const line = b.lines[i];
+      if (TAB_LINE.test(line)) {
+        // Guitar/bass tab: keep the columns lined up.
+        const tab = [line];
+        while (i + 1 < b.lines.length && TAB_LINE.test(b.lines[i + 1])) tab.push(b.lines[++i]);
+        sec.append(el("pre", "tabnotes", tab.join("\n")));
+        continue;
+      }
+      const lab = LABELLED_CHORDS.exec(line);
+      if (lab && isChordLine(lab[2])) {
+        // "Intro: G C D G"
+        const row = el("div", "chordline-row");
+        row.append(el("span", "chord-label", lab[1].replace(/^./, x => x.toUpperCase()) + ":"), chordLineEl(lab[2]));
+        sec.append(row);
+        continue;
+      }
       if (chordLines && isChordLine(line)) {
         const next = b.lines[i + 1];
-        if (next != null && !isChordLine(next) && !hasInlineChords(next)) {
+        if (next != null && !isChordLine(next) && !hasInlineChords(next) && !TAB_LINE.test(next) && !sectionLabel(next)) {
           // Chords written above the words: place each chord over the right word.
-          sec.append(inlineChordLine(mergeChordLine(line, next)));
+          const merged = mergeChordLine(line, next);
+          sec.append(inlineChordLine(merged, note));
           i++;
         } else {
-          sec.append(el("div", "chordline", line.trim().split(/\s+/).join("   ")));
+          sec.append(chordLineEl(line));
         }
       } else if (hasInlineChords(line)) {
-        sec.append(inlineChordLine(line));
+        sec.append(inlineChordLine(line, note));
       } else {
         sec.append(el("div", "line", line));
       }
@@ -259,7 +312,7 @@ export function renderSong(root, song) {
     body.append(sec);
   }
   root.append(body);
-  return { hasChords: songHasChords(song.lyrics) };
+  return { hasChords: songHasChords(song.lyrics), chords: used };
 }
 
 // The first proper line of words, shown under search results so songs can be told apart.

@@ -3,7 +3,9 @@
 
 const DB_NAME = "my-songs";
 const STORE = "songs";
+const FOLDERS = "folders";
 const LS_KEY = "my-songs-library";
+const LS_FOLDERS = "my-songs-folders";
 let dbPromise = null;
 let useLocal = false;
 
@@ -11,10 +13,11 @@ function openDB() {
   if (dbPromise) return dbPromise;
   dbPromise = new Promise((resolve, reject) => {
     if (!("indexedDB" in window)) { reject(new Error("no indexedDB")); return; }
-    const req = indexedDB.open(DB_NAME, 1);
+    const req = indexedDB.open(DB_NAME, 2);
     req.onupgradeneeded = () => {
       const db = req.result;
       if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: "id" });
+      if (!db.objectStoreNames.contains(FOLDERS)) db.createObjectStore(FOLDERS, { keyPath: "id" }); // version 2: gig folders
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -23,17 +26,17 @@ function openDB() {
   return dbPromise;
 }
 
-function localAll() {
-  try { return JSON.parse(localStorage.getItem(LS_KEY) || "[]"); } catch { return []; }
+function localAll(key = LS_KEY) {
+  try { return JSON.parse(localStorage.getItem(key) || "[]"); } catch { return []; }
 }
-function localSave(list) { localStorage.setItem(LS_KEY, JSON.stringify(list)); }
+function localSave(list, key = LS_KEY) { localStorage.setItem(key, JSON.stringify(list)); }
 
-function tx(mode, fn) {
+function tx(mode, fn, storeName = STORE) {
   return openDB().then(db => {
     if (!db || useLocal) return null;
     return new Promise((resolve, reject) => {
-      const t = db.transaction(STORE, mode);
-      const store = t.objectStore(STORE);
+      const t = db.transaction(storeName, mode);
+      const store = t.objectStore(storeName);
       let result;
       fn(store, r => { result = r; });
       t.oncomplete = () => resolve(result);
@@ -69,12 +72,43 @@ export async function putSong(song) {
 
 export async function deleteSong(id) {
   await openDB();
-  if (useLocal) { localSave(localAll().filter(s => s.id !== id)); return; }
-  await tx("readwrite", s => s.delete(id));
+  if (useLocal) localSave(localAll().filter(s => s.id !== id));
+  else await tx("readwrite", s => s.delete(id));
+  // Take it out of any folders too.
+  for (const f of await allFolders()) {
+    if (f.songIds.includes(id)) await putFolder({ ...f, songIds: f.songIds.filter(x => x !== id), updated: Date.now() });
+  }
 }
 
-export function newId() {
-  return "s" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+// ---- Folders (for example "Gig 01"): a name and an ordered list of song ids ----
+
+export async function allFolders() {
+  await openDB();
+  if (useLocal) return localAll(LS_FOLDERS);
+  return tx("readonly", (s, done) => { const r = s.getAll(); r.onsuccess = () => done(r.result); }, FOLDERS);
+}
+export async function getFolder(id) {
+  await openDB();
+  if (useLocal) return localAll(LS_FOLDERS).find(f => f.id === id) || null;
+  return tx("readonly", (s, done) => { const r = s.get(id); r.onsuccess = () => done(r.result || null); }, FOLDERS);
+}
+export async function putFolder(folder) {
+  await openDB();
+  if (useLocal) {
+    localSave(localAll(LS_FOLDERS).filter(f => f.id !== folder.id).concat([folder]), LS_FOLDERS);
+    return folder;
+  }
+  await tx("readwrite", s => s.put(folder), FOLDERS);
+  return folder;
+}
+export async function deleteFolder(id) {
+  await openDB();
+  if (useLocal) { localSave(localAll(LS_FOLDERS).filter(f => f.id !== id), LS_FOLDERS); return; }
+  await tx("readwrite", s => s.delete(id), FOLDERS);
+}
+
+export function newId(prefix = "s") {
+  return prefix + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }
 
 // Ask the tablet not to clear the library when space runs low.
@@ -97,8 +131,11 @@ export async function isKeptSafe() {
 
 export async function exportLibrary() {
   const songs = await allSongs();
-  return { app: "my-songs", version: 1, exported: new Date().toISOString(), songs };
+  const folders = await allFolders();
+  return { app: "my-songs", version: 2, exported: new Date().toISOString(), songs, folders };
 }
+
+function clampInt(v, lo, hi) { const n = parseInt(v, 10); return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : 0; }
 
 function validSong(s) {
   return s && typeof s === "object" && typeof s.id === "string" && s.id.length < 80 &&
@@ -118,12 +155,33 @@ export async function importLibrary(data) {
       artist: String(raw.artist || "").slice(0, 200),
       lyrics: String(raw.lyrics || "").slice(0, 100000),
       source: String(raw.source || "Backup").slice(0, 60),
+      transpose: clampInt(raw.transpose, -11, 11),
+      capo: clampInt(raw.capo, 0, 11),
+      playCapo: raw.playCapo == null ? undefined : clampInt(raw.playCapo, 0, 11),
+      lastOpened: Number(raw.lastOpened) || 0,
       added: Number(raw.added) || Date.now(),
       updated: Number(raw.updated) || Number(raw.added) || Date.now(),
     };
+    if (song.playCapo === undefined) delete song.playCapo;
     const old = existing.get(song.id);
     if (!old) { await putSong(song); added++; }
     else if ((song.updated || 0) > (old.updated || 0)) { await putSong(song); updated++; }
   }
-  return { added, updated, skipped };
+  // Folders: added if new, replaced if the backup's copy is newer. Only songs that exist are kept.
+  let folders = 0;
+  if (Array.isArray(data.folders)) {
+    const ids = new Set((await allSongs()).map(s => s.id));
+    const have = new Map((await allFolders()).map(f => [f.id, f]));
+    for (const raw of data.folders) {
+      if (!raw || typeof raw.id !== "string" || typeof raw.name !== "string" || !Array.isArray(raw.songIds)) continue;
+      const f = {
+        id: raw.id.slice(0, 80), name: raw.name.slice(0, 80),
+        songIds: raw.songIds.filter(x => typeof x === "string" && ids.has(x)),
+        created: Number(raw.created) || Date.now(), updated: Number(raw.updated) || Date.now(),
+      };
+      const old = have.get(f.id);
+      if (!old || f.updated > (old.updated || 0)) { await putFolder(f); folders++; }
+    }
+  }
+  return { added, updated, skipped, folders };
 }
