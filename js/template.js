@@ -41,7 +41,7 @@ export function sectionLabel(line) {
   return null;
 }
 
-function hasInlineChords(line) {
+export function hasInlineChords(line) {
   INLINE_CHORD.lastIndex = 0;
   let m;
   while ((m = INLINE_CHORD.exec(line))) if (isChord(m[1])) return true;

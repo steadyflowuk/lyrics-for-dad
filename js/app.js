@@ -4,7 +4,7 @@ import * as db from "./db.js";
 import { findSongs, fetchLyricsFor, LookupError } from "./online.js";
 import { transposeChord, bassNote, prefersFlats, guitarDiagram, bassDiagram, guitarShape, cleanChordSheet, tuningShift, tuningName } from "./chords.js";
 
-const VERSION = "2.0.3";
+const VERSION = "2.0.4";
 const main = document.getElementById("main");
 const toastEl = document.getElementById("toast");
 
