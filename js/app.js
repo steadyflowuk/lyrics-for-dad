@@ -3,7 +3,7 @@ import { renderSong, firstLine, plainWords, cleanLyrics } from "./template.js";
 import * as db from "./db.js";
 import { findSongs, fetchLyricsFor, LookupError } from "./online.js";
 
-const VERSION = "1.1.1";
+const VERSION = "1.1.2";
 const main = document.getElementById("main");
 const toastEl = document.getElementById("toast");
 

@@ -15,7 +15,19 @@ export class LookupError extends Error {
   constructor(kind) { super(kind); this.kind = kind; } // "offline" | "unavailable"
 }
 
-async function getJSON(url) {
+// One quiet retry if a service says it's busy (HTTP 429/503), then give up and let the other one answer.
+async function getJSON(url, retry = true) {
+  try { return await getJSONOnce(url); }
+  catch (e) {
+    if (retry && /HTTP (429|503)/.test(String(e.message))) {
+      await new Promise(r => setTimeout(r, 1500));
+      return getJSONOnce(url);
+    }
+    throw e;
+  }
+}
+
+async function getJSONOnce(url) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), TIMEOUT);
   try {
