@@ -2,7 +2,7 @@
 import { renderSong, firstLine, plainWords, cleanLyrics, songHasChords, firstChord, extractSheet } from "./template.js";
 import * as db from "./db.js";
 import { findSongs, fetchLyricsFor, LookupError } from "./online.js";
-import { transposeChord, bassNote, prefersFlats, guitarDiagram, bassDiagram, cleanChordSheet } from "./chords.js";
+import { transposeChord, bassNote, prefersFlats, guitarDiagram, bassDiagram, cleanChordSheet, tuningShift, tuningName } from "./chords.js";
 
 const VERSION = "2.0.1";
 const main = document.getElementById("main");
@@ -544,7 +544,13 @@ function showPreview() {
 
 const UG_SEARCH = "https://www.ultimate-guitar.com/search.php?search_type=title&value=";
 
-function keyLabel(n) {
+function keyLabel(n, song) {
+  const moved = n ? (n > 0 ? `up ${n}` : `down ${-n}`) : "";
+  if (song && song.key) {
+    const extra = song.standardTuning ? tuningShift(song.tuning) : 0;
+    const k = transposeChord(song.key, n + extra, prefersFlats(transposeChord(song.key, n + extra, false)));
+    return `Key of ${k}` + (moved ? ` (${moved})` : "");
+  }
   if (!n) return "Original key";
   return n > 0 ? `Up ${n}` : `Down ${-n}`;
 }
@@ -555,7 +561,9 @@ function chordView(song) {
   const transpose = song.transpose || 0;
   const playCapo = song.playCapo == null ? capo : song.playCapo;
   const mode = settings.instrument;
-  const shift = mode === "bass" ? capo + transpose : capo + transpose - playCapo;
+  // Chords written for a guitar tuned down (Eb tuning etc.) can be moved to standard tuning.
+  const tune = song.standardTuning ? tuningShift(song.tuning) : 0;
+  const shift = mode === "bass" ? capo + transpose + tune : capo + transpose + tune - playCapo;
   const first = firstChord(song.lyrics);
   const flats = shift ? prefersFlats(transposeChord(first || "C", shift, false)) : false;
   const show = mode === "bass" ? c => bassNote(c, shift, flats) : c => transposeChord(c, shift, flats);
@@ -602,9 +610,12 @@ async function showSong(id, stale, folderId) {
       }
     }
     chordInfo.hidden = !hasChords || view.mode === "off";
-    chordInfo.textContent = view.mode === "bass"
-      ? `Bass notes · ${keyLabel(view.transpose)}`
-      : `Guitar · ${view.playCapo ? "Capo " + view.playCapo : "No capo"} · ${keyLabel(view.transpose)}`;
+    const tuning = !song.tuning ? ""
+      : song.standardTuning && tuningShift(song.tuning) ? " · Standard tuning"
+      : ` · Tuning: ${song.tuning}${tuningName(song.tuning) ? " (" + tuningName(song.tuning) + ")" : ""}`;
+    chordInfo.textContent = (view.mode === "bass"
+      ? `Bass notes · ${keyLabel(view.transpose, song)}`
+      : `Guitar · ${view.playCapo ? "Capo " + view.playCapo : "No capo"} · ${keyLabel(view.transpose, song)}`) + tuning;
     const head = sheet.querySelector(".song-head");
     head.after(chordInfo, shapes);
   }
@@ -734,7 +745,13 @@ async function showSong(id, stale, folderId) {
         box.append(
           h("p", { class: "panel-label", text: "Show chords for" }),
           h("div", { class: "choices" }, choice("guitar", "🎸 Guitar"), choice("bass", "Bass"), choice("off", "Words only")),
-          settings.instrument !== "off" ? stepper("Key", keyLabel(view.transpose), setKey(-1), setKey(1), "− Lower", "+ Higher") : null,
+          settings.instrument !== "off" ? stepper("Key", keyLabel(view.transpose, song), setKey(-1), setKey(1), "− Lower", "+ Higher") : null,
+          settings.instrument !== "off" && tuningShift(song.tuning) ? h("div", { class: "tuning-choice" },
+            h("p", { class: "muted", text: `These chords are for instruments tuned ${tuningName(song.tuning)} (${song.tuning}).` }),
+            h("button", {
+              class: "choice wide" + (song.standardTuning ? " on" : ""), type: "button", "aria-pressed": song.standardTuning ? "true" : "false",
+              onclick: async () => { await save({ standardTuning: !song.standardTuning }); keepPlace(draw); fill(); },
+            }, song.standardTuning ? "Playing in standard tuning (chords changed to match)" : "Change the chords for standard tuning")) : null,
           settings.instrument === "guitar" ? stepper("Capo", view.playCapo ? `Capo ${view.playCapo}` : "No capo", setCapo(-1), setCapo(1), "−", "+") : null,
           settings.instrument !== "off" ? h("button", {
             class: "choice wide" + (settings.shapes ? " on" : ""), type: "button", "aria-pressed": settings.shapes ? "true" : "false",
@@ -746,7 +763,7 @@ async function showSong(id, stale, folderId) {
             h("a", { class: "btn secondary", href: UG_SEARCH + encodeURIComponent(song.title + " " + (song.artist || "")), target: "_blank", rel: "noopener" }, "Look up other chords online ↗"),
             h("a", { class: "btn secondary", href: "#/chords/" + encodeURIComponent(song.id) }, "Paste new chords"),
             song.wordsOnly ? h("button", { class: "btn secondary danger-text", type: "button", onclick: async () => {
-              await save({ lyrics: song.wordsOnly, wordsOnly: undefined, capo: 0, playCapo: undefined, transpose: 0 });
+              await save({ lyrics: song.wordsOnly, wordsOnly: undefined, capo: 0, playCapo: undefined, transpose: 0, tuning: "", key: "", standardTuning: false });
               delete song.wordsOnly; await db.putSong(song);
               close(null); keepPlace(draw); toast("Chords removed. The words are back as they were.");
             } }, "Remove the chords") : null));
@@ -862,12 +879,12 @@ async function showPasteChords(id, stale) {
   document.addEventListener("visibilitychange", onBack);
 
   async function saveIt() {
-    const { text, capo } = cleanChordSheet(extractSheet(box.value).text, song.title);
+    const { text, capo, tuning, key } = cleanChordSheet(extractSheet(box.value).text, song.title);
     const lyrics = cleanLyrics(text);
     if (!lyrics.trim()) { msg.className = "form-msg"; msg.textContent = "The box is empty. Paste the chords first."; return; }
     if (!songHasChords(lyrics)) { msg.className = "form-msg"; msg.textContent = "No chords were found in that. Check you copied the chords page (it shows chords like G, Am or D7 above the words)."; return; }
     const keepWords = song.wordsOnly || (songHasChords(song.lyrics) ? undefined : song.lyrics);
-    const rec = { ...song, lyrics, capo, transpose: 0, updated: Date.now() };
+    const rec = { ...song, lyrics, capo, tuning, key, standardTuning: false, transpose: 0, updated: Date.now() };
     delete rec.playCapo;
     if (keepWords) rec.wordsOnly = keepWords;
     await db.putSong(rec);

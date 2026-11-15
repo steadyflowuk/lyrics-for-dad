@@ -1,4 +1,4 @@
-import { TAB_LINE } from "./chords.js";
+import { TAB_LINE, sheetDetails } from "./chords.js";
 
 // The big-print song template: turns plain lyrics (with optional chords) into the on-screen layout.
 // All song text is untrusted (it comes from the internet or a paste), so everything is built with
@@ -11,12 +11,14 @@ const SECTION_PLAIN = new RegExp(`^\\s*(${SECTION_WORDS})(\\s*\\d+)?\\s*(\\(?x\\
 const CHORUS_WORDS = /chorus|refrain|hook/i;
 
 // A chord name such as G, Am, F#m7, Bbmaj7, Dsus4, C/G, Gadd9, E7b9, A5.
-const CHORD = /^[A-G](?:#|b|♯|♭)?(?:maj|min|mi|m|M|dim|aug|sus|add|\+|°|ø)?\d*(?:(?:sus|add|maj|dim|aug|b|#|\+|-)\d+)*(?:\/[A-G](?:#|b|♯|♭)?)?$/;
-const CHORD_LINE_EXTRAS = /^(\||\/|-|x\d+|\(x\d+\)|\d+x|n\.?c\.?|\(|\))$/i;
+// Also: Gm(maj7), Asus4(2), C6/9, E7#9, A7alt, and a chord in brackets like (Em) for a passing chord.
+const CHORD = /^[A-G](?:#|b|♯|♭)?(?:maj|min|mi|m|M|dim|aug|sus|add|\+|°|ø|Δ)?\d*(?:(?:sus|add|maj|dim|aug|b|#|\+|-|\/)\d+|\((?:add|maj|sus|b|#|\+|-)?\d+\)|alt)*(?:\/[A-G](?:#|b|♯|♭)?)?$/;
+// Notes that sit on a chord line without making it a line of words: x2, N.C., |, (repeat), riff...
+const CHORD_LINE_EXTRAS = /^(\|+|\/+|-+>?|\.{2,}|\*+|%|x\d+|\d+x|\(x?\d+x?\)|n\.?c\.?|riff\d?|repeat|hold|stop|break|tacet|let|ring|fade|end|etc\.?|[\[(][^\])\s]{1,12}[\])]|\(|\))$/i;
 const INLINE_CHORD = /\[([^\]\s]{1,12})\]/g;
 
 export function isChord(token) {
-  return CHORD.test(token);
+  return CHORD.test(String(token).replace(/^\((.+)\)$/, "$1").replace(/\*+$/, ""));
 }
 
 // A line made up only of chords, e.g. "G      C     D".
@@ -152,28 +154,56 @@ export function extractSheet(text) {
       if (j >= 0 && single(lines[j]) && Math.abs(lines[j].trim().charCodeAt(0) - c) === 1) kinds[i] = "J";
     }
   });
+  // Website buttons and labels next to the sheet ("PLAY" under each chord in the chord list, etc.)
+  kinds.forEach((k, i) => { if (k !== "_" && isFurniture(lines[i])) kinds[i] = "F"; });
   const weight = (k, i) => {
     if (k === "C") return 2;
     if (k === "I") return 3;
     if (k === "S") return 2;
     if (k === "T") return 1;
-    if (k === "J") return -2;
+    if (k === "J" || k === "F") return -2;
     if (k === "w") return i > 0 && kinds[i - 1] === "C" ? 1 : -1;   // words under a chord line belong
     return 0;
   };
-  let best = 0, bestA = -1, bestB = -1, sum = 0, a = 0;
+  // The core: the stretch of lines richest in chords.
+  let best = 0, a = -1, b = -1, sum = 0, start = 0;
   kinds.forEach((k, i) => {
-    if (sum <= 0) { sum = 0; a = i; }
+    if (sum <= 0) { sum = 0; start = i; }
     sum += weight(k, i);
-    if (sum > best) { best = sum; bestA = a; bestB = i; }
+    if (sum > best) { best = sum; a = start; b = i; }
   });
-  if (bestA < 0 || best < 6) return { text, removed: 0 };
-  while (bestA < bestB && kinds[bestA] === "_") bestA++;
-  const outside = lines.filter((l, i) => (i < bestA || i > bestB) && l.trim()).length;
+  if (a < 0 || best < 6) return { text, removed: 0 };
+  // Then widen it to the whole sheet: verses without chords, a closing riff, a note at the top...
+  // everything up to the website's own buttons and labels on either side.
+  const stop = i => kinds[i] === "F" || kinds[i] === "J";
+  while (a > 0 && !stop(a - 1) && a - 1 >= 0) a--;
+  while (b < lines.length - 1 && !stop(b + 1)) b++;
+  while (a < b && !lines[a].trim()) a++;
+  while (b > a && !lines[b].trim()) b--;
+  const outside = lines.filter((l, i) => (i < a || i > b) && l.trim()).length;
   if (outside < 12) return { text, removed: 0 };    // looks like just the sheet: keep it all
-  // Keep any "Capo" line from the page header so the capo is still picked up.
-  const capo = lines.slice(0, bestA).filter(l => /^\s*capo\b/i.test(l)).slice(-1);
-  return { text: capo.concat(lines.slice(bestA, bestB + 1)).join("\n"), removed: outside };
+  // Keep the details from the page's header (capo, tuning, key) as plain lines the app reads.
+  const d = sheetDetails(lines.slice(0, a).join("\n"));
+  const head = [];
+  if (d.capo) head.push(`Capo: ${d.capo}`);
+  if (d.tuning) head.push(`Tuning: ${d.tuning}`);
+  if (d.key) head.push(`Key: ${d.key}`);
+  return { text: head.concat(lines.slice(a, b + 1)).join("\n"), removed: outside };
+}
+
+// Buttons, labels and counters that chords websites put around the sheet.
+const FURNITURE = new Set(("print|create correction|report bad tab|rating|please rate this tab|please, rate this tab|close ad|x|" +
+  "view in app|transpose|listen|pdf|download pdf|simplify|autoscroll|open official|backing track|check out the tab|save|edit|" +
+  "add to favorites|strumming|play|chords|guitar|ukulele|piano|versions|official|share|reply|install|font|show all|" +
+  "related tabs|comments|top tabs|more versions|related songs|&").split("|"));
+function isFurniture(line) {
+  const t = line.trim().toLowerCase().replace(/\s+/g, " ");
+  if (FURNITURE.has(t)) return true;
+  if (/^[\d.,&★/ ]+$/.test(t)) return true;                                   // 4.8, 6,730, 1 & 2 &
+  if (/^(last update|last edit|rating|author|difficulty|tuning|key|capo|speed|official version|ver \d)\b/.test(t)) return true;
+  if (/\b(views|saves|rates|comments|contributor)\b/.test(t) && /\d/.test(t)) return true;
+  if (/^\d+ ?bpm$/.test(t)) return true;
+  return false;
 }
 
 // Lyrics text with chords removed, used for searching and for spotting repeated choruses.

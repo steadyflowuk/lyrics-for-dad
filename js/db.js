@@ -159,10 +159,15 @@ export async function importLibrary(data) {
       capo: clampInt(raw.capo, 0, 11),
       playCapo: raw.playCapo == null ? undefined : clampInt(raw.playCapo, 0, 11),
       lastOpened: Number(raw.lastOpened) || 0,
+      tuning: String(raw.tuning || "").slice(0, 60),
+      key: String(raw.key || "").slice(0, 6),
+      standardTuning: raw.standardTuning === true,
+      wordsOnly: typeof raw.wordsOnly === "string" ? raw.wordsOnly.slice(0, 100000) : undefined,
       added: Number(raw.added) || Date.now(),
       updated: Number(raw.updated) || Number(raw.added) || Date.now(),
     };
     if (song.playCapo === undefined) delete song.playCapo;
+    if (song.wordsOnly === undefined) delete song.wordsOnly;
     const old = existing.get(song.id);
     if (!old) { await putSong(song); added++; }
     else if ((song.updated || 0) > (old.updated || 0)) { await putSong(song); updated++; }

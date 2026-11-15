@@ -14,8 +14,17 @@ function noteIndex(letter, acc) {
   return (n + 12) % 12;
 }
 
+// "(Em)" is a passing chord: the brackets are kept around whatever it becomes.
+function unwrap(name) {
+  let core = String(name || "").trim(), pre = "", post = "";
+  const star = /\*+$/.exec(core);
+  if (star) { post = star[0]; core = core.slice(0, -post.length); }
+  if (/^\(.+\)$/.test(core)) { pre = "("; post = ")" + post; core = core.slice(1, -1); }
+  return [pre, core, post];
+}
+
 export function parseChord(name) {
-  const m = CHORD_RE.exec(String(name || "").trim());
+  const m = CHORD_RE.exec(unwrap(name)[1]);
   if (!m) return null;
   return {
     root: noteIndex(m[1], m[2]),
@@ -42,11 +51,12 @@ export function prefersFlats(keyChord) {
 // Move a chord up or down by some semitones. With no change, the chord is shown exactly as written.
 export function transposeChord(name, shift, flats) {
   if (!shift) return name;
-  const c = parseChord(name);
+  const [pre, core, post] = unwrap(name);
+  const c = parseChord(core);
   if (!c) return name;
   const root = noteName(c.root + shift, flats);
   const bass = c.bass == null ? "" : "/" + noteName(c.bass + shift, flats);
-  return root + c.quality + bass;
+  return pre + root + c.quality + bass + post;
 }
 
 // The note a bass player plays for a chord: the bass note after a slash, otherwise the root.
@@ -213,24 +223,56 @@ export function bassDiagram(note) {
 
 // ---------- Chord sheets pasted from websites ----------
 
-// Tidy a chord sheet copied from a chords website, and pick up "Capo 2" if it says so.
+// Tidy a chord sheet copied from a chords website, and pick up capo, tuning and key.
 // Header lines the app shows anyway (song name, capo, tuning, key, difficulty...) are dropped.
 export function cleanChordSheet(text, title = "") {
   let t = String(text || "").replace(/\r\n?/g, "\n");
   t = t.replace(/\[\/?ch\]/g, "").replace(/\[\/?tab\]/g, "");
-  let capo = 0;
   const lines = t.split("\n");
+  const details = sheetDetails(lines.slice(0, 30).join("\n"));
   const simple = x => x.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
   const name = simple(title);
   const out = [];
   lines.forEach((line, i) => {
-    const m = /^\s*capo\b[^\d\n]{0,14}(\d{1,2})(?!\d)/i.exec(line);
-    if (m && i < 30) { if (!capo) capo = Math.min(11, parseInt(m[1], 10)); return; }
-    if (i < 30 && /^\s*(no capo\b|capo\s*:?\s*(none|no)\b|(tuning|key|difficulty|author|strumming|strumming pattern|tabbed by|chords by|bpm|tempo)\s*:)[^\n]{0,60}$/i.test(line)) return;
+    if (i < 30 && /^\s*capo\b[^\n]{0,30}$/i.test(line)) return;
+    if (i < 30 && /^\s*(no capo\b|(tuning|key|difficulty|author|strumming|strumming pattern|tabbed by|chords by|bpm|tempo)\s*:)[^\n]{0,80}$/i.test(line)) return;
     if (i < 5 && name && simple(line).startsWith(name) && simple(line).length < name.length + 40) return;
     out.push(line);
   });
-  return { text: out.join("\n"), capo };
+  return { text: out.join("\n"), capo: details.capo, tuning: details.tuning, key: details.key };
 }
 
-export const TAB_LINE = /^\s*[eBGDAEbgdaE]?\s*\|[-\d|hpbrsvx\/\\~().^*=<> ]{6,}$/;
+// A line of guitar or bass tab: "e|--0--2--|", "Eb|-7--5--|", "|-----|".
+export const TAB_LINE = /^\s*(?:[A-Ga-g][#b]?\s*)?[|:][-\d|hpbrsvtx\/\\~().^*=<> ]{6,}$/;
+
+// Capo, tuning and key from a chord sheet's header (websites may run them together:
+// "Tuning: Eb Ab Db Gb Bb EbKey: DCapo: No capo").
+export function sheetDetails(text) {
+  const t = String(text || "");
+  const out = { capo: 0, tuning: "", key: "" };
+  const capo = /capo\b[^\d\n]{0,14}?(\d{1,2})(?!\d)/i.exec(t);
+  if (capo && !/no capo/i.test(t.slice(Math.max(0, capo.index - 3), capo.index + 12))) out.capo = Math.min(11, parseInt(capo[1], 10));
+  const tun = /tuning:\s*((?:[A-Ga-g][#b]?[ ,]*){4,7}|[A-Za-z][A-Za-z ]{2,30}?)(?=key:|capo:|author:|difficulty:|\n|$)/i.exec(t);
+  if (tun) {
+    const v = tun[1].replace(/,/g, " ").replace(/\s+/g, " ").trim();
+    if (!/^(e a d g b e|standard|std|standard tuning|eadgbe)$/i.test(v)) out.tuning = v;
+  }
+  const key = /[Kk][Ee][Yy]:\s*([A-Ga-g][#b]?m?)(?![a-z#])/.exec(t);
+  if (key) out.key = key[1][0].toUpperCase() + key[1].slice(1);
+  return out;
+}
+
+// How far a tuning is from standard, for the usual "down" tunings (chords named as played).
+export function tuningShift(tuning) {
+  const t = String(tuning || "").toLowerCase().replace(/,/g, " ").replace(/\s+/g, " ").trim();
+  if (/^(eb ab db gb bb eb|d# g# c# f# a# d#)$/.test(t) || /half ?(a )?step down/.test(t)) return -1;
+  if (/^d g c f a d$/.test(t) || /(whole|full) ?step down|1 step down/.test(t)) return -2;
+  return 0;
+}
+export function tuningName(tuning) {
+  const n = tuningShift(tuning);
+  if (n === -1) return "half a step down";
+  if (n === -2) return "a whole step down";
+  if (/^d a d g b e$/i.test(String(tuning).replace(/,/g, " ").replace(/\s+/g, " ").trim())) return "Drop D";
+  return "";
+}
